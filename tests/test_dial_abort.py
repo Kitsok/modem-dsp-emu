@@ -93,6 +93,20 @@ class DialAbortTests(unittest.TestCase):
         self.assertTrue(wires[1].startswith(b'BYE '))
         self.assertIsNone(ep.call)
 
+    def test_repeated_late_answer_keeps_invite_cseq_and_sends_one_bye(self):
+        ep = self.endpoint()
+        ep.abort_dial()
+        headers = {'call-id':'test-call','to':'<sip:100@peer>;tag=remote'}
+        for _ in range(2):
+            ep.on_invite_response(200, headers, '', ('127.0.0.1',5060))
+        wires = [call.args[0] for call in ep.sip.sendto.call_args_list]
+        acks = [wire for wire in wires if wire.startswith(b'ACK ')]
+        byes = [wire for wire in wires if wire.startswith(b'BYE ')]
+        self.assertEqual(len(acks), 2)
+        self.assertEqual(len(byes), 1)
+        self.assertTrue(all(b'CSeq: 1 ACK' in wire for wire in acks))
+        self.assertIn(b'CSeq: 2 BYE', byes[0])
+
     def test_old_cancelled_transaction_does_not_replace_a_new_dial(self):
         ep = self.endpoint()
         ep.abort_dial()

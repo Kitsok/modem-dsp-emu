@@ -4745,8 +4745,10 @@ class EiconSipEndpoint:
                     # An answer can race CANCEL: ACK it, then end the dialog
                     # without starting media or reporting CONNECT to the DTE.
                     cancelled['remote_to'] = headers.get('to', '')
-                    self.send_bye(cancelled)
-                    modem_log.info('[call] late answer after dial abort: BYE sent')
+                    if not cancelled.get('bye_sent'):
+                        self.send_bye(dict(cancelled))
+                        cancelled['bye_sent'] = True
+                        modem_log.info('[call] late answer after dial abort: BYE sent')
             return
         out = self.outgoing
         if not out or headers.get('call-id') != out['call_id']:

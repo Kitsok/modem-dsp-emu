@@ -12,6 +12,10 @@ the terminal returns NO CARRIER. The CRLF ending the dial command is not
 an abort. Once CONNECT is reported, ordinary keypresses are modem data;
 use the guarded escape sequence and ATH to hang up instead.
 
+Cancelled SIP calls may still receive late answers. The endpoint ACKs each
+late answer with the original INVITE sequence and sends only one BYE, without
+starting modem media or disturbing a subsequent dial attempt.
+
 ## System Python
 
 `run.sh` uses `exec /usr/bin/python3 -u` and does not depend on `.venv`.
