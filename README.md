@@ -180,6 +180,19 @@ so that diagnostic mode does not provide uniform wire pacing. Keep buffering
 on for packet-timing comparisons. Very short intervals remain subject to host
 scheduler precision. Peer/gateway packetization should be verified in captures.
 
+### Configuration launcher
+
+`/usr/bin/python3 tools/modem_service.py` loads `/etc/modem-emu.conf` when
+present and starts the Analog kernel backend idle. Use
+`--config config/modem-emu.ini --check-config` to validate an explicit file,
+or omit `--check-config` to run it. The example INI file defines network,
+modem, terminal, logging and compatibility sections. Unknown fields and
+invalid values fail before startup. CLI endpoint options override file
+settings; compatibility environment values are applied before imports.
+Set `network.dial_target` to the ATA address before using ATDT. A missing
+implicit default file uses built-in defaults; an explicit missing file fails.
+The development `run.sh` remains a separate preset launcher.
+
 ### Listen and advertised addresses
 
 Both `--bind` and `--advertise` default to `0.0.0.0`. Binding to the wildcard
