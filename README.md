@@ -331,6 +331,13 @@ The dev launcher accepts additional endpoint arguments:
 ./run.sh --log-level debug      # troubleshooting diagnostics
 ```
 
+`run.sh` creates `artifacts` in the current checkout and publishes the
+terminal as `artifacts/modem-emu.tty`. Attach from another terminal with
+`tio artifacts/modem-emu.tty`. Override the path with `--pty-link PATH`.
+The development launcher enables the local audio monitor by default; use
+`ATM0` to mute it. The packaged system service separately uses
+`/run/modem-emu/tty`, whose parent directory is created by systemd.
+
 ### The terminal before the call
 
 `--v42-pty` allocates the terminal at startup and prints its path, and with

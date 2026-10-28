@@ -6,10 +6,12 @@ export EICON_V42_ORDERED_ESTABLISH=1
 export EICON_V42_XID_OPT_OCTETS=3
 export EICON_V42_DETECT=1
 export EICON_V42_DETECT_TIMEOUT=3600
-#
+# The development launcher must not depend on systemd RuntimeDirectory.
+mkdir -p artifacts || exit 1
 exec /usr/bin/python3 -u tools/eicon_adsp_sip.py \
   --firmware-set analog109 \
   --kernel-dispatch \
+  --audio-monitor \
   --tx-v42 \
   --tx-v42bis \
   --modem-role auto \
@@ -20,4 +22,4 @@ exec /usr/bin/python3 -u tools/eicon_adsp_sip.py \
   --law pcmu \
   --rtp-packet-ms 30 \
   --dial-target 192.168.196.29:5060 \
-  --v42-pty --pty-link /run/modem-emu/tty --at "$@"
+  --v42-pty --pty-link "$PWD/artifacts/modem-emu.tty" --at "$@"
