@@ -9,7 +9,7 @@ DEFAULT_CONFIG = Path('/etc/modem-emu.conf')
 DEFAULTS = {
     'network': dict(bind='0.0.0.0', advertise='0.0.0.0', sip_port='5072',
                     rtp_port='4012', dial_target=''),
-    'modem': dict(role='calling', law='pcmu', rtp_packet_ms='30', compression='v42bis'),
+    'modem': dict(role='auto', law='pcmu', rtp_packet_ms='30', compression='v42bis'),
     'terminal': dict(link='/run/modem-emu/tty'),
     'logging': dict(level='info'),
     'compatibility': dict(codec_mailbox='1', tx_consumption='1', data_ready='1',
@@ -49,7 +49,7 @@ def load_config(path: Path = DEFAULT_CONFIG, *, required: bool = False):
                 raise ValueError(f'network.{key} must be in 1..65535')
         if int(values['modem']['rtp_packet_ms']) not in (10, 20, 30, 40, 60):
             raise ValueError('modem.rtp_packet_ms must be 10, 20, 30, 40 or 60')
-        choices = [('modem', 'role', ('calling', 'answer')),
+        choices = [('modem', 'role', ('auto', 'calling', 'answer')),
                    ('modem', 'law', ('pcmu', 'pcma')),
                    ('modem', 'compression', ('none', 'v42bis', 'v44')),
                    ('logging', 'level', ('info', 'debug'))]

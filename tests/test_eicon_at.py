@@ -285,6 +285,7 @@ class CallControlTests(AtTestCase):
     def test_answer_and_hangup(self):
         self.send('ATA')
         self.assertEqual(self.at.actions[-1].kind, ActionKind.ANSWER)
+        self.at.no_carrier()  # Finish the asynchronous answer before another command.
         self.send('ATH')
         self.assertEqual(self.at.actions[-1].kind, ActionKind.HANGUP)
 

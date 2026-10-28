@@ -458,12 +458,12 @@ class AtParser:
             return cr + lf + text.encode("ascii", "replace") + cr + lf
         return text.encode("ascii", "replace") + cr
 
-    def ring(self, caller: str = "") -> bytes:
+    def ring(self, caller: str = "", *, auto_answer: bool = True) -> bytes:
         """An incoming call.  Auto-answers when S0 is between 1 and 254."""
         self.last_caller = caller
         out = bytearray(self.respond("RING"))
         s0 = self.registers[0]
-        if 1 <= s0 <= 254:
+        if auto_answer and 1 <= s0 <= 254:
             self.actions.append(AtAction(ActionKind.ANSWER,
                                          options=self.options()))
         return bytes(out)
@@ -563,6 +563,9 @@ class AtParser:
             return pos + 1 + consumed
 
         if char == "A":
+            self._suppress_ok = True
+            self.dial_pending = True
+            self._dial_ignore_lf = True
             self.actions.append(AtAction(ActionKind.ANSWER,
                                          options=self.options()))
             return pos + 1

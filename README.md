@@ -203,8 +203,19 @@ This package is for private deployment. The repository provides no general
 redistribution grant for the project or extracted firmware; redistribution
 rights remain unverified. The native core identifies BSD-3-Clause attribution,
 which is retained in `debian/copyright`. No public redistribution is implied.
-Run `python3 -S tests/check_deb.py ../modem-emu_0.1.0+local2_amd64.deb` to check
+Run `python3 -S tests/check_deb.py ../modem-emu_0.1.0+local3_amd64.deb` to check
 the built archive without installing it.
+
+### Automatic calling and answering
+
+`[modem] role = auto` (the default) selects the calling DSP/LAPM role for
+ATDT and the answering role for incoming SIP calls. One service can handle
+both directions sequentially without changing configuration or restarting.
+Only one call can be active or ringing at a time; overlapping attempts are
+rejected busy. Explicit `calling` and `answer` settings remain available.
+Use ATS0=1 for autoanswer or ATS0=0 followed by ATA after RING for manual
+answer. Manual ATA waits for CONNECT or failure; a keypress during training
+aborts the attempt. ATH can reject a ringing call.
 
 ### Configuration launcher
 

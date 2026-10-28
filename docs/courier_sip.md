@@ -1,7 +1,7 @@
 # Calling a Courier through a SIP ATA
 
 For the build-109 Analog kernel backend, use `--firmware-set analog109`,
-`--kernel-dispatch`, `--modem-role calling`, `--tx-v42`, `--v42-pty` and `--at`.
+`--kernel-dispatch`, `--modem-role auto`, `--tx-v42`, `--v42-pty` and `--at`.
 Add `--tx-v42bis` to request compression; the peer must also enable it.
 `--dial-target HOST:PORT` selects the SIP endpoint. Omit `--dial NUMBER` to
 start idle, attach to the printed PTY and use `ATDT100` to originate a call.

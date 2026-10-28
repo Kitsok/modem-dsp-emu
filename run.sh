@@ -12,7 +12,7 @@ exec /usr/bin/python3 -u tools/eicon_adsp_sip.py \
   --kernel-dispatch \
   --tx-v42 \
   --tx-v42bis \
-  --modem-role calling \
+  --modem-role auto \
   --bind 0.0.0.0 \
   --advertise 0.0.0.0 \
   --sip-port 5072 \

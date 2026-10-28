@@ -14,8 +14,8 @@ repository root, with the dependencies in `debian/control` installed:
 
 ```sh
 dpkg-buildpackage -us -uc -b
-python3 -S tests/check_deb.py ../modem-emu_0.1.0+local2_amd64.deb
-sudo apt install ../modem-emu_0.1.0+local2_amd64.deb
+python3 -S tests/check_deb.py ../modem-emu_0.1.0+local3_amd64.deb
+sudo apt install ../modem-emu_0.1.0+local3_amd64.deb
 ```
 
 The archive is architecture-specific and declares its native libc dependency.
@@ -56,8 +56,9 @@ dial_target = 192.168.196.29:5060
 The shipped target is empty: configure it before dialing. The wildcard bind
 listens on all IPv4 interfaces; wildcard advertise selects the routed local
 source address for each peer. An explicit advertised IP overrides selection.
-The default modem settings are calling role, PCMU, 30 ms packets, LAPM and
-V.42bis. The INI also contains terminal, logging and compatibility sections.
+The default modem settings are automatic call/answer role selection, PCMU,
+30 ms packets, LAPM and V.42bis. The INI also contains terminal, logging and
+compatibility sections.
 Unknown sections/options and invalid values fail validation.
 
 ```sh
@@ -92,6 +93,14 @@ ATA. Dialing has no initial OK: wait for CONNECT or failure. A keypress while
 dialing/training aborts without Enter and returns NO CARRIER. After CONNECT,
 ordinary keypresses carry modem data. To hang up, stop typing for the escape
 guard interval, send `+++` without Enter, wait again, then enter `ATH`.
+
+With `[modem] role = auto`, incoming SIP calls use the answering role and
+ATDT uses the calling role in the same running service. Use `ATS0=1` to
+answer automatically, or `ATS0=0` and `ATA` after RING to answer manually.
+An incoming caller must send its SIP INVITE to this host's SIP port (5072 by
+default). In the current lab, the ATA route `9095551020` points to
+`100@172.20.20.207:5072` on both FXS lines. A physical Courier can dial that
+number to reach the service. Only one active/ringing call is supported.
 
 The answering Courier must be configured separately for autoanswer, error
 correction and desired compression, with its serial application's DTR/RTS

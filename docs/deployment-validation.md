@@ -76,3 +76,54 @@ permission/recovery integration passed. The installed upgrade preserved
 `/etc/modem-emu.conf`. An AT exchange as kostik passed, while unrelated users
 and a process with only the private service group were denied terminal
 access. The service remained active and enabled. No reboot was performed.
+
+## local3 automatic call/answer mode
+
+Version 0.1.0+local3 selects the DSP and LAPM role for each call when
+`[modem] role = auto`: ATDT originates and incoming SIP calls answer.
+The configuration and CLI defaults now select auto mode. Explicit calling
+and answer modes remain available. Manual ATA waits for the connection
+result, autoanswer follows the SIP ring cadence, and overlapping call
+attempts receive busy handling.
+
+All 202 focused runtime tests passed under system Python without site
+packages. `tests/integration_dual.py` passed incoming manual answer,
+autoanswer, outgoing SIP setup, busy handling and another incoming call in
+one process. This integration test exercises SIP/AT control, not a physical
+modem data connection.
+
+The following are observed lab results, not guarantees of call reliability.
+The installed service on dev.ne-arch.online answered physical Courier calls
+with both ATS0=1 and ATS0=0 followed by ATA. Both incoming tests verified the
+complete deterministic payloads in both directions, with LAPM/V.42bis.
+The permanent ATA route 9095551020 on both FXS lines targets
+100@172.20.20.207:5072.
+
+A subsequent outgoing call connected and then failed immediately after the
+Courier sent DISC. Five additional ATDT100 attempts using the same installed
+service produced these results:
+
+| Attempt | Result | Observation |
+| --- | --- | --- |
+| 1 | Failed | DISC shortly after CONNECT; Courier reported Keypress Abort. |
+| 2 | Failed | No modem CONNECT; remote BYE during training. |
+| 3 | Passed | Exact payloads verified both ways; 45.27 seconds connected. |
+| 4 | Passed | Exact payloads verified both ways; 45.48 seconds connected. |
+| 5 | Passed | Exact payloads verified both ways; 45.41 seconds connected. |
+
+Successful calls ended with an intentional ATH after the test window.
+They used the same payload hashes recorded above. No service restart,
+configuration change or code change occurred between the five attempts;
+the process remained PID 3764. The two failures remain unresolved. The
+requested threshold for further investigation was more than two failures
+among these five attempts, so no additional investigation was performed.
+
+A separate experimental emulator-to-emulator data test failed to establish
+LAPM while repeatedly retraining V.34. Its script and log are retained as
+diagnostic artifacts outside the committed test suite; this is not counted
+as a passing integration test.
+
+After testing, mgetty on nanovax was restored. The emulator was left active
+with ATS0=1. No reboot or QEMU run was performed. Raw terminal traces,
+per-attempt JSON results, service journals and Courier ATI6/ATI11 output
+were saved in the operator workspace under ata-inspection/repeat-five.

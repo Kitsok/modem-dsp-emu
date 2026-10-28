@@ -1009,6 +1009,7 @@ class Call:
     reported_counters: tuple[int, ...] = ()
     dil_reported: bool = False
     at_connected: bool = False
+    modem_role: str | None = None
 
 
 class CrashSafeWave:
@@ -1678,7 +1679,7 @@ class EiconSipEndpoint:
                  ppp_tcp_port: int = 47901,
                  data_tx_buffer_ms: int = 0,
                  ring_seconds: float = 2.0,
-                 modem_role: str = 'answer',
+                 modem_role: str = 'auto',
                  originate_line_ready: bool | None = None,
                  originate_v8: bool | None = None,
                  dial_number: str = '', dial_target: str = '',
@@ -1761,8 +1762,7 @@ class EiconSipEndpoint:
         self.info_actions = dict(info_actions or {})
         self.db_words = dict(db_words or {})
         self.native_mips = native_mips
-        # Which side of the modem handshake this instance takes. The
-        # signalling role is always answer; see build_card().
+        # Auto resolves the modem and LAPM roles from each call's direction.
         self.modem_role = modem_role
         # None means "let the backend decide": the native MIPS backend defaults
         # to EICON_ORIGINATE_LINE_READY, which pins DM(0x0554) for the calling
@@ -2205,7 +2205,7 @@ class EiconSipEndpoint:
                 # Retransmission while still ringing: resend 180 Ringing.
                 self.response(180, 'Ringing', headers, peer)
                 return
-            if self.pending_invite:
+            if self.pending_invite or self.outgoing:
                 self.response(486, 'Busy Here', headers, peer)
                 return
             # A new incoming call: ring first, answer after a cadence (or
@@ -2217,7 +2217,7 @@ class EiconSipEndpoint:
             caller = headers.get('from', '')
             if self.at is not None and self.pty is not None:
                 self.at_apply_options()
-                self.pty.write_terminal(self.at.ring(caller))
+                self.pty.write_terminal(self.at.ring(caller, auto_answer=False))
                 self.pty.dispatch_actions()
             # S0 controls auto-answer: 1..254 = answer after N rings. One
             # ring is `ring_seconds`; for the loopback that is 2 s by default.
@@ -4170,26 +4170,33 @@ class EiconSipEndpoint:
             self.receive_health(call)
             now = time.monotonic()
 
-    def build_card(self):
-        """Boot an emulated card for one call, whichever way it was set up.
+    def role_for(self, *, outgoing: bool) -> str:
+        if self.modem_role == 'auto':
+            return 'calling' if outgoing else 'answer'
+        return self.modem_role
 
-        The signalling role is always 'answer' -- the card is driven through
-        its incoming-call path in both directions. Which side of the *modem*
-        handshake this instance takes is `--modem-role`, published in
-        GEN_SETUP1, and is the only thing that has to differ between the two
-        ends of a loopback.
+    def build_card(self, modem_role: str | None = None):
+        """Boot a card with the resolved per-call DSP role.
+
+        In auto mode an idle preboot warms the answer role. Keep a differently
+        configured cached card for a later call rather than reusing its role.
         """
-        if self.preboot_card is not None:
+        role = modem_role or self.role_for(outgoing=False)
+        if role not in ('calling', 'answer'):
+            raise ValueError('a card needs a resolved calling or answer role')
+        if (self.preboot_card is not None
+                and getattr(self.preboot_card, '_sip_modem_role', role) == role):
             card = self.preboot_card
             self.preboot_card = None
             modem_log.debug('[preboot] taking the card booted at startup')
+            card._sip_modem_role = role
             return card
         if self.native_mips:
             if self.native_card is None and dsp_drive.FIRMWARE_SET == 'analog109':
                 from analog_mips_modem import create_analog_mips_modem
                 self.native_card = create_analog_mips_modem(
                     self.mips_image, self.law, self.mips_interval,
-                    self.modem_role)
+                    role)
             elif self.native_card is None:
                 from eicon_mips_shim import create_native_mips_modem
                 self.native_card = create_native_mips_modem(
@@ -4204,7 +4211,7 @@ class EiconSipEndpoint:
                     mips_interval=self.mips_interval,
                     originate_line_ready=self.originate_line_ready,
                     originate_v8=self.originate_v8,
-                    modem_role=self.modem_role)
+                    modem_role=role)
             card = self.native_card
             self.native_card = None
             modem_log.debug('[native-mips] firmware entry and bearer attachment '
@@ -4214,7 +4221,7 @@ class EiconSipEndpoint:
             # both its vectors as RTI -- so its kernel-driven path is a
             # separate backend on SPORT1, not a mode of the PRI one.
             from analog_kernel_dispatch import AnalogKernelModem
-            card = AnalogKernelModem(modem_role=self.modem_role, law=self.law,
+            card = AnalogKernelModem(modem_role=role, law=self.law,
                                      codec_rate=self.analog_codec_rate)
             modem_log.debug('[media] physical DSP line boundary: SPORT1 signed-linear '
                   'codec/DAA, dispatched by the Analog kernel')
@@ -4238,19 +4245,19 @@ class EiconSipEndpoint:
             # The Analog kernel-dispatch backend does take a role: its dial
             # page asks for V.8 by itself in either direction, so there is
             # nothing to stand in for and no reason to force answer mode.
-            card.configure_modem(self.modem_role, self.law)
+            card.configure_modem(role, self.law)
         elif self.native_mips or self.kernel_dispatch:
             # The Analog native-MIPS tower has a real originating DIAL path;
             # forcing it through the generic answer setup leaves V.8 parked
             # at the initial detector state.  PRI native-MIPS still owns its
             # role inside the shim, so preserve the historical answer setup
             # for that backend.
-            native_role = (self.modem_role
+            native_role = (role
                            if getattr(card, 'firmware_set', None) == 'analog109'
                            else 'answer')
             card.configure_modem(native_role, self.law)
         else:
-            card.configure_modem(self.modem_role, self.law)
+            card.configure_modem(role, self.law)
             # The direct backend has no AT dial script/MIPS supervisor to turn
             # an originated call's training-start into the page-6 request.
             # Mirror the native backend's opt-in originate policy so a paired
@@ -4258,7 +4265,7 @@ class EiconSipEndpoint:
             # V.8 role instead of leaving the caller on V22FC page 12.
             originate_v8 = (self.originate_v8 if self.originate_v8 is not None
                             else os.getenv('EICON_ORIGINATE_V8', '1') != '0')
-            if self.modem_role == 'calling' and originate_v8:
+            if role == 'calling' and originate_v8:
                 if 0x025F not in card.overlays:
                     raise RuntimeError('direct caller has no V.8 overlay')
                 # The Analog dial page asks for V.8 by itself, two frames in,
@@ -4308,6 +4315,7 @@ class EiconSipEndpoint:
             self._arm_watches(cpu)
         if self.assert_dm_clean and self.assert_dm_clean[2] is None:
             self._arm_dm_assertion(cpu)
+        card._sip_modem_role = role
         return card
 
     def _arm_watches(self, cpu) -> None:
@@ -4524,11 +4532,14 @@ class EiconSipEndpoint:
         peer = inv['peer']
         media = inv['media']
         call_id = inv['call_id']
-        card = self.build_card()
+        role = self.role_for(outgoing=False)
+        card = self.build_card(role)
         self.call = Call(peer, media, call_id,
-                         f'{random.randrange(2**32):08x}', card)
+                         f'{random.randrange(2**32):08x}', card, modem_role=role)
         self._attach_reactive_engine(self.call)
         self.attach_physical_line(self.call)
+        if self.at is not None:
+            self.at.dial_pending = True
         local_ip = local_address_for(peer, self.bind, self.advertised)
         # Captured at answer, because this is the last point the INVITE's
         # headers are in hand and a BYE at shutdown needs them.
@@ -4541,7 +4552,7 @@ class EiconSipEndpoint:
                       [f'Contact: <sip:eicon@{local_ip}:{self.sip_port}>',
                        'Content-Type: application/sdp'], self.call.local_tag)
         modem_log.info(f'[call] answering {peer[0]}:{peer[1]}, RTP -> '
-              f'{media[0]}:{media[1]}, {self.codec_name}/8000')
+              f'{media[0]}:{media[1]}, {self.codec_name}/8000, modem role {role}')
 
     def local_sdp(self, local_ip: str) -> str:
         return (f'v=0\r\no=eicon 0 0 IN IP4 {local_ip}\r\n'
@@ -4560,7 +4571,7 @@ class EiconSipEndpoint:
         at all.
         """
         self.prune_cancelled_outgoing()
-        if self.call or self.outgoing:
+        if self.call or self.outgoing or self.pending_invite:
             modem_log.info('[sip] already on a call; not dialling')
             return False
         host = target or self.registrar
@@ -4581,6 +4592,7 @@ class EiconSipEndpoint:
             'tag': f'{random.randrange(2**32):08x}',
             'branch': f'z9hG4bK{random.randrange(2**48):012x}',
             'authorized': False,
+            'modem_role': self.role_for(outgoing=True),
         }
         modem_log.info(f'[sip] dialling {number} at {peer[0]}:{peer[1]}')
         # Boot before the INVITE goes out, not when the answer comes back.
@@ -4592,7 +4604,7 @@ class EiconSipEndpoint:
         # initialised before it dials.
         if self.at is not None:
             self.at_apply_options()
-        self.dialed_card = self.build_card()
+        self.dialed_card = self.build_card(self.outgoing['modem_role'])
         # Before begin_dial, not after the 200 OK: the tower checks the DAA
         # for exchange battery when it accepts CALL_REQ.
         self.pending_analog_line = self.attach_line_to_card(self.dialed_card)
@@ -4794,17 +4806,18 @@ class EiconSipEndpoint:
         self.send_ack(headers)
         if self.call:
             return
+        role = out.get('modem_role') or self.role_for(outgoing=True)
         card = self.dialed_card
         self.dialed_card = None
         if card is None:
             if self.at is not None:
                 self.at_apply_options()
-            card = self.build_card()
-        self.call = Call(peer, media, out['call_id'], out['tag'], card)
+            card = self.build_card(role)
+        self.call = Call(peer, media, out['call_id'], out['tag'], card, modem_role=role)
         self._attach_reactive_engine(self.call)
         self.attach_physical_line(self.call)
         modem_log.info(f'[call] connected to {media[0]}:{media[1]}, '
-              f'{self.codec_name}/8000, modem role {self.modem_role}')
+              f'{self.codec_name}/8000, modem role {role}')
 
     def _attach_reactive_engine(self, call: Call) -> None:
         """Attach the sibling V.90 engine as an opt-in wire-peer oracle.
@@ -4827,7 +4840,8 @@ class EiconSipEndpoint:
                 except ValueError:
                     return default
             data_link = LapmEndpoint(
-                role=('originator' if self.modem_role == 'calling'
+                role=('originator' if (getattr(call, 'modem_role', None)
+                                       or self.role_for(outgoing=False)) == 'calling'
                       else 'answerer'),
                 detect=os.environ.get('EICON_V42_DETECT', '1') != '0',
                 detect_timeout=_v42_int('EICON_V42_DETECT_TIMEOUT', 600),
@@ -4918,7 +4932,7 @@ class EiconSipEndpoint:
             return self.abort_dial()
         if action.kind is ActionKind.DIAL:
             if not self.dial(action.number, self.dial_target or None):
-                return self.at.respond('NO CARRIER')
+                return self.at.no_carrier()
             return b''
         if action.kind is ActionKind.ANSWER:
             if self.pending_invite is not None:
@@ -4926,12 +4940,17 @@ class EiconSipEndpoint:
                 self._complete_answer()
                 return b''
             if self.call is None:
-                return self.at.respond('NO CARRIER')
+                return self.at.no_carrier()
             # The INVITE was answered when it arrived; ATA has nothing left to
             # do but confirm, and the CONNECT follows from the rate word.
             modem_log.debug('[at] ATA: call already answered at INVITE')
             return b''
         if action.kind in (ActionKind.HANGUP, ActionKind.RESET):
+            if self.pending_invite is not None:
+                inv = self.pending_invite
+                self.pending_invite = None
+                self.response(486, 'Busy Here', inv['headers'], inv['peer'])
+                modem_log.info('[call] ringing call rejected by terminal')
             if self.call is None and not self.outgoing:
                 return b''
             modem_log.debug(f'[at] {action}: dropping the call')
@@ -5380,9 +5399,11 @@ def main() -> int:
                     help='the DNS servers offered over IPCP (default the '
                          'server address, which answers nothing -- clients '
                          'ask for these and some refuse to proceed without)')
-    ap.add_argument('--modem-role', choices=('answer', 'calling'),
-                    default='answer',
-                    help='which side of the modem handshake this instance '
+    ap.add_argument('--modem-role', choices=('auto', 'answer', 'calling'),
+                    default='auto',
+                    help='auto selects calling for outgoing calls and answer '
+                         'for incoming calls; explicit modes force the role. '
+                         'Which side of the modem handshake this instance '
                          'takes (GEN_SETUP1 0x0484/0x048c). The signalling '
                          'role is always answer; this is the data-pump role, '
                          'and a loopback needs one instance of each')
