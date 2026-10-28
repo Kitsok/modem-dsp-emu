@@ -99,6 +99,13 @@ The default verbose result includes negotiated compression, for example
 `CONNECT V34/LAPM/V42BIS/31200:TX/16800:RX`. LAPM indicates error correction;
 NONE in the compression field indicates that compression was not negotiated.
 
+If a media exception ends a call, the endpoint uses normal hangup cleanup:
+it stops the RTP wire thread, sends SIP BYE to release the peer, releases
+call resources and returns NO CARRIER to the terminal. The terminal then
+accepts AT commands again; subsequent keystrokes are not discarded as data
+for a call that no longer exists. Endpoint capture files remain open to
+retain fault evidence, and the process stays available for the next call.
+
 With `[modem] role = auto`, incoming SIP calls use the answering role and
 ATDT uses the calling role in the same running service. Use `ATS0=1` to
 answer automatically, or `ATS0=0` and `ATA` after RING to answer manually.

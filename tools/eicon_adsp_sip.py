@@ -5175,19 +5175,10 @@ class EiconSipEndpoint:
               f'{card.dm[0x3FB0]}, TrnProgress=0x{card.dm[0x3FC2]:04x}, '
               f'Rstatus=0x{card.dm[0x3FC1]:04x}; dropping the call and '
               'staying up for the next INVITE')
-        # Leave self.capture open: it belongs to the endpoint, and its files are
-        # the evidence for the fault that just happened.
-        if call.analog_line is not None:
-            call.analog_line.set_hook(False)
-            if hasattr(call.card, 'set_line_hook'):
-                call.card.set_line_hook(False)
-        self.call = None
-        self.repeat_tx_underrun = (
-            os.environ.get('EICON_MEDIA_REPEAT_UNDERRUN', '0') != '0')
-        self.repeat_rx_underrun = (
-            os.environ.get('EICON_MEDIA_REPEAT_RX_UNDERRUN',
-                           '1' if self.repeat_tx_underrun else '0') != '0')
-        self.close_ppp()
+        # Use normal teardown: stop the wire clock, release the peer via BYE,
+        # reset terminal data mode and report NO CARRIER. Keep capture open;
+        # it belongs to the endpoint and retains evidence of this fault.
+        self.hangup_call('media fault')
 
     def run(self) -> None:
         modem_log.info(f'[sip] listening on {self.bind}:{self.sip_port}; RTP '
