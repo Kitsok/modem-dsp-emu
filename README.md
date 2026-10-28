@@ -180,6 +180,21 @@ so that diagnostic mode does not provide uniform wire pacing. Keep buffering
 on for packet-timing comparisons. Very short intervals remain subject to host
 scheduler precision. Peer/gateway packetization should be verified in captures.
 
+### System Python runtime
+
+The dev `run.sh` launcher executes `/usr/bin/python3` directly; it needs no
+virtual environment, pip activation or Python site packages for the Analog
+build-109 kernel-dispatch configuration. The runtime still needs the compiled
+ADSP library (`tools/adsp2181emu/libadsp2181.dylib`) and extracted Analog
+kernel, TIKRNL task and overlays under `artifacts/eicon-dsp/`.
+
+Unicorn is an optional dependency of `--native-mips`, not kernel dispatch.
+Selecting native MIPS without it reports a command-line dependency error.
+Kernel DSP assertions and program-counter histograms use the already loaded
+ADSP library and do not import the MIPS backend. A development virtual
+environment may still be kept for optional backend work, but the launcher
+never uses it.
+
 ### Normal and debug logs
 
 The SIP endpoint defaults to `--log-level info`. Normal output includes AT

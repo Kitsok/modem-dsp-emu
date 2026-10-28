@@ -7,7 +7,7 @@ export EICON_V42_XID_OPT_OCTETS=3
 export EICON_V42_DETECT=1
 export EICON_V42_DETECT_TIMEOUT=3600
 #
-.venv/bin/python -u tools/eicon_adsp_sip.py \
+exec /usr/bin/python3 -u tools/eicon_adsp_sip.py \
   --firmware-set analog109 \
   --kernel-dispatch \
   --tx-v42 \

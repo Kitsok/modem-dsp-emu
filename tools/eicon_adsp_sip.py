@@ -4046,7 +4046,7 @@ class EiconSipEndpoint:
             if (self.pc_histogram_from is not None
                     and not self.pc_histogram_started
                     and getattr(call.card, 'resident', 0) == self.pc_histogram_from):
-                from eicon_mips_shim import ADSP as _ADSP
+                _ADSP = ADSP
                 _ADSP.adsp2181_coverage_clear(
                     getattr(call.card, 'card', call.card).cpu)
                 self.pc_histogram_started = True
@@ -4384,7 +4384,7 @@ class EiconSipEndpoint:
         whole budget on that memset and never sees the write that matters,
         which is exactly the way the Session 114k-l verification passed.
         """
-        from eicon_mips_shim import ADSP as _ADSP
+        _ADSP = ADSP
         lo, hi = self.assert_dm_clean[0], self.assert_dm_clean[1]
         budget = self.assert_dm_clean[3]
         for address in range(lo, hi + 1):
@@ -4420,7 +4420,7 @@ class EiconSipEndpoint:
         trn = card.dm[0x3FC2]
         if trn == self.pc_histogram_state:
             if not self.pc_state_active:
-                from eicon_mips_shim import ADSP as _ADSP
+                _ADSP = ADSP
                 _ADSP.adsp2181_coverage_clear(card.cpu)
                 self.pc_state_active = True
                 self.pc_state_visits += 1
@@ -4434,7 +4434,7 @@ class EiconSipEndpoint:
 
     def _pc_state_collect(self, card, samples: int) -> None:
         """Fold the visit that is ending into the running totals."""
-        from eicon_mips_shim import ADSP as _ADSP
+        _ADSP = ADSP
         cpu = getattr(card, 'card', card).cpu
         for pc in range(0x4000):
             count = _ADSP.adsp2181_coverage_count(cpu, pc)
@@ -4464,7 +4464,7 @@ class EiconSipEndpoint:
         """
         if not self.pc_histogram or card is None:
             return
-        from eicon_mips_shim import ADSP as _ADSP
+        _ADSP = ADSP
         cpu = getattr(card, 'card', card).cpu
         if self.pc_histogram_state is not None:
             # A call that ends inside the gated state still has that visit in
@@ -5588,6 +5588,14 @@ def main() -> int:
     ap.add_argument('-v', '--verbose', action='store_true')
     args = ap.parse_args()
     modem_log.configure(args.log_level)
+    if args.native_mips:
+        try:
+            import unicorn
+        except ModuleNotFoundError as exc:
+            if exc.name != 'unicorn':
+                raise
+            ap.error('--native-mips requires the optional Unicorn Python package; '
+                     '--kernel-dispatch uses system Python without it')
     if args.native_mips and args.firmware_set == 'analog109' and args.mips_image == Path('docs/firmware/te_dmlt.pm'):
         args.mips_image = Path('docs/firmware/build-109/te_dmlt.am')
     select_firmware_set(args.firmware_set)

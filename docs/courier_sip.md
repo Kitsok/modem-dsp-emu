@@ -12,6 +12,22 @@ the terminal returns NO CARRIER. The CRLF ending the dial command is not
 an abort. Once CONNECT is reported, ordinary keypresses are modem data;
 use the guarded escape sequence and ATH to hang up instead.
 
+## System Python
+
+`run.sh` uses `exec /usr/bin/python3 -u` and does not depend on `.venv`.
+The Analog kernel-dispatch path uses Python's standard library plus the
+compiled native ADSP library and extracted build-109 Analog firmware.
+Unicorn is required only when selecting the optional native MIPS backend.
+DSP assertions and PC histograms also work without that backend installed.
+
+A subsequent system-Python call test negotiated V.34/LAPM/V.42bis. The
+Courier verified the complete outgoing deterministic payload, and the
+emulator received an exact 13,783-byte prefix of the reverse payload.
+Retraining prevented the full reverse payload from completing before the
+test timeout. This validates bidirectional data on system Python, not a
+sustained-transfer qualification of the connection. The serial-side mgetty
+service was temporarily stopped for the direct test and restored afterward.
+
 ## Build-109 Courier compatibility settings
 
 ```bash
