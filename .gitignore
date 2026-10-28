@@ -57,3 +57,4 @@ profiles.local.toml
 /debian/files
 /debian/*.substvars
 /debian/*.debhelper
+/debian/*.debhelper.log

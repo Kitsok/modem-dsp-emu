@@ -293,7 +293,7 @@ call, not the one in progress.
 Use `--pty-link PATH` with `--v42-pty` to publish a stable symlink to the
 allocated terminal. The parent directory must be writable. A dangling link
 is replaced at startup; a regular file or live link is left untouched and
-startup fails. See [the Courier guide](docs/courier_sip.md#stable-terminal-on-dev)
+startup fails. See [the Courier guide](docs/courier_sip.md#stable-terminal)
 for a persistent `/dev/modem-emu` setup without running the emulator as root.
 
 The terminal can also originate a SIP call. For the build-109 Analog card:

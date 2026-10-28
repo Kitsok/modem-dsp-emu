@@ -73,50 +73,39 @@ call remained connected for about 88 seconds until deliberately stopped.
 This was tested with compression disabled (`AT&K0` on the Courier).
 Subsequently, with `--tx-v42bis` and Courier `AT&K1`, the peer reported
 `V42BIS 512/32` and `LAPM 128/15`; that observation confirms negotiation,
-not a repeat of the two-way integrity test with compression enabled.
+not a repeat of the two-way integrity test with compression enabled. A later
+packaged-service validation did verify complete payloads in both directions
+with V.42bis and maintained the connection for about 70 seconds.
 
 Keep the Courier serial terminal open so DTR and RTS are asserted. Use
 `AT&M5S0=1` to require error correction and enable autoanswer. These are
 volatile settings unless explicitly saved on the modem.
 
-## Stable terminal on dev
+## Stable terminal
 
-`--pty-link PATH` requires `--v42-pty` and creates a symlink to the allocated
-terminal. Startup replaces a dangling symlink but refuses to replace a
-regular file or a symlink to an existing target. Closing the terminal
-removes the symlink only if it still points to that instance's PTY.
-The parent directory must already exist and be writable by the process.
+For the packaged service, open `tio /dev/modem-emu` from a login session
+that belongs to the `modem-emu` group. The service owns the runtime directory
+and publishes the current PTY through the public symlink. See
+[the service guide](service.md) for installation and permissions.
 
-The included `run.sh` is the dev host launcher: it binds SIP and RTP to
-`0.0.0.0` and uses `--advertise 0.0.0.0` for automatic selection of the
-local address toward each peer. SIP/SDP carries that selected address,
-not the wildcard. It sends calls to `192.168.196.29:5060`, enables V.42bis and
-the compatibility settings above, and starts idle for `ATDT100`.
-It publishes the PTY at `/run/modem-emu/tty`. Adjust the addresses for
-another host and run the script from the repository root.
+`--pty-link PATH` requires `--v42-pty`. Startup replaces a dangling symlink
+but refuses to replace a regular file or live target. On close, it removes
+the symlink only if it still points to that instance. The parent directory
+must already exist and be writable by the process.
 
-Install the supplied tmpfiles configuration once on dev:
+For an isolated development session alongside the installed service:
 
 ```bash
-sudo install -m 0644 config/modem-emu.conf /etc/tmpfiles.d/modem-emu.conf
-sudo systemd-tmpfiles --create /etc/tmpfiles.d/modem-emu.conf
-```
-
-This creates `/run/modem-emu` owned by `kostik` and a root-owned
-`/dev/modem-emu` symlink pointing to `/run/modem-emu/tty`. Systemd tmpfiles
-recreates these paths at boot. Change the owner and group in the supplied
-configuration before installing it for another account. The emulator runs
-without root privileges and updates only the symlink in its runtime directory.
-
-```bash
-./run.sh
+./run.sh --sip-port 5092 --rtp-port 4102 --pty-link /tmp/modem-emu-dev
 # In another terminal on dev:
-screen /dev/modem-emu
+tio /tmp/modem-emu-dev
 ```
 
-Type `AT` and expect `OK`, then type `ATDT100`. The public path stays the
-same across emulator restarts even when Linux allocates a different PTY.
-`/dev/modem-emu` is dangling while the emulator is stopped.
+Do not install the earlier kostik-owned manual tmpfiles definition over the
+packaged service's definition. The development launcher uses the same
+compatibility settings and V.42bis, starts idle for ATDT100, and uses the
+current ATA target. Its default terminal/ports are reserved by the installed
+service, so use overrides as above when running both.
 
 ## Logging
 
