@@ -72,6 +72,14 @@ The compression field is NONE when no codec was negotiated. Numeric and
 minimal CONNECT modes keep their shorter results; normal connection logs
 still include the negotiated compression.
 
+V.42bis can switch between compressed and transparent transmission during
+a call. After ETM, the decoder terminates the old match and treats the next
+character as unmatched before restarting transparent string matching.
+Keeping that boundary aligned with the peer prevents dictionary divergence,
+garbled output and later invalid-codeword errors. The runtime suite includes
+a SpanDSP-produced transition vector, tested with fragmented codec input
+and across LAPM information frames; SpanDSP is not a runtime dependency.
+
 ## Observed interoperability
 
 A physical USRobotics Courier through a Cisco SPA112 connected using

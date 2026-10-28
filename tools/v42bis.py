@@ -243,6 +243,7 @@ class V42bisDecoder:
         self._bits = 0
         self._bit_count = 0
         self._escaped = False
+        self._exception = False
 
     def _accept_data(self, value: bytes, out: bytearray) -> None:
         if self.current:
@@ -254,13 +255,22 @@ class V42bisDecoder:
                 self.escape = (self.escape + 51) & 0xFF
 
     def _transparent(self, value: int, out: bytearray) -> None:
-        candidate = self.current + bytes((value,))
-        if self.current and self.dictionary.code(
-                candidate, for_match=True) is None:
-            self.dictionary.add(self.current, value)
+        if self._exception:
+            # ETM terminated the compressed match. Its successor is the
+            # unmatched character, even if the combined string exists
+            # (V.42bis 7.8.2 and the exception procedure in Figure I-7).
+            if self.current:
+                self.dictionary.add(self.current, value)
             self.current = bytes((value,))
+            self._exception = False
         else:
-            self.current = candidate
+            candidate = self.current + bytes((value,))
+            if self.current and self.dictionary.code(
+                    candidate, for_match=True) is None:
+                self.dictionary.add(self.current, value)
+                self.current = bytes((value,))
+            else:
+                self.current = candidate
         out.append(value)
         if value == self.escape:
             self.escape = (self.escape + 51) & 0xFF
@@ -279,6 +289,8 @@ class V42bisDecoder:
             self._bits = 0
             self._bit_count = 0
             self.compressed = False
+            self.dictionary.last_added = None
+            self._exception = True
 
     def feed(self, data: bytes) -> bytes:
         out = bytearray()
@@ -288,6 +300,7 @@ class V42bisDecoder:
                     self._escaped = False
                     if value == ECM:
                         self.compressed = True
+                        self._exception = False
                     elif value == EID:
                         self._transparent(self.escape, out)
                     elif value == RESET:

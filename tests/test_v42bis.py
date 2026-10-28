@@ -69,6 +69,19 @@ class V42bisCodecTests(unittest.TestCase):
         data = bytes(range(256)) * 20
         self.round_trip(data, codewords=512, max_string=250, fragment=7)
 
+    def test_peer_mode_switch_restarts_the_transparent_match(self):
+        # SpanDSP 0.0.6, P1=512/P2=32: compressed "CA", transparent "C",
+        # then dynamic "AACCCCCACAA". Continuing the old match after ETM
+        # creates the wrong dictionary entries and corrupts the final codes.
+        wire = bytes.fromhex('4300004402004600004141434343434341430000050300')
+        expected = b'CACAACCCCCACAA'
+        for fragment in (1, 2, 3, 7, len(wire)):
+            with self.subTest(fragment=fragment):
+                decoder = V42bisDecoder()
+                decoded = b''.join(decoder.feed(wire[start:start + fragment])
+                                   for start in range(0, len(wire), fragment))
+                self.assertEqual(decoded, expected)
+
     def test_reserved_transparent_command_is_an_error(self):
         with self.assertRaises(V42bisError):
             V42bisDecoder().feed(b'\x00\x03')
@@ -111,6 +124,14 @@ class LapmCompressionTests(unittest.TestCase):
                 bytes((0x03, sequence << 1, 0x00)) + payload))
             sequence += 1
         self.assertEqual(self.endpoint.rx_data, data)
+
+    def test_peer_mode_switch_survives_lapm_fragmentation(self):
+        wire = bytes.fromhex('4300004402004600004141434343434341430000050300')
+        for sequence, start in enumerate(range(0, len(wire), 3)):
+            self.endpoint.feed(encode_frame(
+                bytes((0x03, sequence << 1, 0x00)) + wire[start:start + 3]))
+        self.assertEqual(self.endpoint.rx_data, b'CACAACCCCCACAA')
+        self.assertIsNone(self.endpoint.failed)
 
     def test_compression_is_not_advertised_by_default(self):
         endpoint = LapmEndpoint(log=lambda _: None, detect=False)
