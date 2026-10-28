@@ -182,6 +182,9 @@ scheduler precision. Peer/gateway packetization should be verified in captures.
 
 ### Private Debian package
 
+See [the service operating guide](docs/service.md) for installation,
+configuration, terminal access, logs, upgrades and removal.
+
 The `debian/` rules build an architecture-specific local package with
 `dpkg-buildpackage -us -uc -b`. Build dependencies include debhelper 13,
 dpkg-dev, GCC, make and system Python. Prepare the extracted Analog build-109
