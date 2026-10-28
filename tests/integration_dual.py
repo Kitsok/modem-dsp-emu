@@ -1,4 +1,4 @@
-"""Exercise incoming manual/automatic answers and outgoing dialing in one process."""
+"""Exercise incoming/outgoing call control; MODEM_TEST_AUDIO_MONITOR=1 adds playback."""
 import os,select,signal,socket,subprocess,tempfile,time
 from pathlib import Path
 
@@ -17,7 +17,7 @@ with tempfile.TemporaryDirectory() as d:
  cfg=Path(d)/'config';link=Path(d)/'tty';log=Path(d)/'log'
  cfg.write_text(f'[network]\nsip_port=5092\nrtp_port=4102\ndial_target=127.0.0.1:{peer.getsockname()[1]}\n[terminal]\nlink={link}\n')
  with log.open('w') as out:
-  process=subprocess.Popen(['/usr/bin/python3','-S',str(ROOT/'tools/modem_service.py'),'--config',str(cfg)],cwd=ROOT,stdout=out,stderr=subprocess.STDOUT,start_new_session=True)
+  process=subprocess.Popen(['/usr/bin/python3','-S',str(ROOT/'tools/modem_service.py'),'--config',str(cfg),*(['--audio-monitor'] if os.environ.get('MODEM_TEST_AUDIO_MONITOR') == '1' else [])],cwd=ROOT,stdout=out,stderr=subprocess.STDOUT,start_new_session=True)
   try:
    deadline=time.monotonic()+6
    while not link.exists():

@@ -217,6 +217,45 @@ Use ATS0=1 for autoanswer or ATS0=0 followed by ATA after RING for manual
 answer. Manual ATA waits for CONNECT or failure; a keypress during training
 aborts the attempt. ATH can reject a ringing call.
 
+### Local modem speaker
+
+Add `--audio-monitor` to `tools/modem_service.py` or
+`tools/eicon_adsp_sip.py` to hear the transmitted and received modem tones
+through the desktop's default PulseAudio/PipeWire output. Playback uses
+`paplay` from `pulseaudio-utils`; it is optional and requires no Python
+packages. The monitor is off unless this flag is supplied.
+
+The AT terminal controls the local speaker:
+
+| Command | Behavior |
+| --- | --- |
+| `ATM0` | Mute the local speaker. |
+| `ATM1` | Play during setup, then mute at modem CONNECT (default). |
+| `ATM2` | Play throughout the call. |
+| `ATL0` through `ATL3` | Increase monitor volume from low to high; default L2. |
+
+ATZ and AT&F reset speaker controls to M1 L2. Monitor gain affects only
+local playback. Both G.711 directions are decoded and mixed at reduced
+volume on a separate worker. Its input queue holds at most 200 ms; a slow
+output drops monitor audio instead of waiting in the modem/RTP path.
+Mute, CONNECT in M1, and hangup discard stale playback. Playback failure
+logs a warning and disables the speaker for this run while the modem
+continues. SIP ringback is not synthesized; the speaker monitors media
+once the call is answered.
+
+For an unprivileged source checkout, run from the repository root:
+
+```sh
+python3 -S tools/modem_service.py --config config/modem-emu.ini \
+  --pty-link "$PWD/artifacts/modem-emu.tty" --audio-monitor \
+  --dial-target 192.168.196.29:5060
+```
+
+Attach in another terminal with `tio artifacts/modem-emu.tty`. The example
+requires IP reachability to the ATA; use the reachable SIP gateway instead
+when calling from another network. The desktop monitor is intended for
+interactive use; a system service needs access to a user audio session.
+
 ### Configuration launcher
 
 `/usr/bin/python3 tools/modem_service.py` loads `/etc/modem-emu.conf` when

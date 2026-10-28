@@ -191,6 +191,8 @@ class AtParser:
         self.connect_format = 1    # long CONNECT text when progress allows
         self.profile = DEFAULT_PROFILE
 
+        self.speaker_mode = 1
+        self.speaker_volume = 2
         self.guard_tone = 0
         self.fast_connect = 0
         self.flow_control = 3
@@ -235,6 +237,8 @@ class AtParser:
         self.quiet = False
         self.verbose = True
         self.progress = 4
+        self.speaker_mode = 1
+        self.speaker_volume = 2
         self.guard_tone = 0
         self.fast_connect = 0
         self.fax_class = 0
@@ -624,7 +628,17 @@ class AtParser:
                 out += self._format(text_out)
             return pos + 1 + consumed
 
-        if char in "LMNY":
+        if char in "LM":
+            value, consumed = _number(rest, default=0)
+            if value not in ((0, 1, 2, 3) if char == "L" else (0, 1, 2)):
+                raise _AtError
+            if char == "M":
+                self.speaker_mode = value
+            else:
+                self.speaker_volume = value
+            return pos + 1 + consumed
+
+        if char in "NY":
             # "Command accepted for compatibility reasons." (AT.txt)
             _, consumed = _number(rest, default=0)
             return pos + 1 + consumed

@@ -102,6 +102,14 @@ default). In the current lab, the ATA route `9095551020` points to
 `100@172.20.20.207:5072` on both FXS lines. A physical Courier can dial that
 number to reach the service. Only one active/ringing call is supported.
 
+For a source checkout on a desktop, pass `--audio-monitor` to the launcher
+along with a writable `--pty-link`. `paplay` plays mixed RX/TX audio through
+the user's PulseAudio/PipeWire session. ATM0 mutes, ATM1 mutes after modem
+CONNECT, ATM2 plays throughout, and ATL0..3 selects low-to-high volume.
+The defaults are M1 L2. The monitor is optional and never sends speaker
+volume changes back to the modem line. It is intended for interactive
+launches; the system service has no desktop audio-session access by default.
+
 The answering Courier must be configured separately for autoanswer, error
 correction and desired compression, with its serial application's DTR/RTS
 and flow control set appropriately. If mgetty manages that port, do not open

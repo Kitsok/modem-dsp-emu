@@ -1688,7 +1688,8 @@ class EiconSipEndpoint:
                  setup_gap_ms: float = 0.0,
                  watch_dm_writes: tuple[tuple[int, int], ...] = (),
                  analog_codec_rate: int = 8000,
-                 rtp_packet_ms: int = 20):
+                 rtp_packet_ms: int = 20,
+                 audio_monitor: bool = False):
         if not isinstance(rtp_packet_ms, int) or not 1 <= rtp_packet_ms <= 200:
             raise ValueError("rtp_packet_ms must be an integer from 1 to 200")
         self.rtp_packet_ms = rtp_packet_ms
@@ -1877,6 +1878,12 @@ class EiconSipEndpoint:
         decode = (RtpCapture.decode_ulaw if law == 'pcmu'
                   else RtpCapture.decode_alaw)
         self.linear_table = [decode(code) for code in range(256)]
+        self.audio_monitor = None
+        if audio_monitor:
+            from audio_monitor import AudioMonitor
+            self.audio_monitor = AudioMonitor(self.linear_table, log=modem_log.warning)
+            if not self.audio_monitor.disabled:
+                modem_log.info('[audio-monitor] local speaker enabled (ATM1, ATL2)')
         self.catchup_quanta = max(1, catchup_quanta)
         # Produced quanta held between the emulator and the wire. This is not
         # added delay: the same audio was being held one stage earlier in the
@@ -2327,6 +2334,9 @@ class EiconSipEndpoint:
                 # endpoint reference; otherwise a normal remote BYE leaves a
                 # stale thread alive across the next INVITE.
                 self.stop_transmit_clock(self.call)
+                monitor = getattr(self, 'audio_monitor', None)
+                if monitor is not None:
+                    monitor.update(active=False)
                 self.call = None
                 self.outgoing = None
                 self.close_ppp()
@@ -3083,6 +3093,15 @@ class EiconSipEndpoint:
                 raw_code if raw_code is not None else encoded[index]
                 for index, raw_code in enumerate(raw))
             call.raw_tx_codes = None
+        monitor = getattr(self, 'audio_monitor', None)
+        if monitor is not None:
+            parser = self.at
+            monitor.update(mode=parser.speaker_mode if parser else 1,
+                           volume=parser.speaker_volume if parser else 2,
+                           connected=call.at_connected)
+            received = call.rx_last_codes
+            monitor.feed(encoded, bytes(received) if received is not None
+                         else bytes([self.silence]) * len(encoded))
         # DSP frames remain 160 samples; only complete wire packets enter
         # the sender queue. The producer owns the partial packet exclusively.
         call.tx_pending.extend(encoded)
@@ -4144,7 +4163,7 @@ class EiconSipEndpoint:
             # same V.42 link and excludes --v42-pty, so a --ppp call had its
             # link serviced by nobody: the peer sent LCP, LAPM acked it, and
             # the bytes sat in rx_data for the whole call.
-            if self.pty is not None:
+            if self.pty is not None or getattr(self, 'audio_monitor', None) is not None:
                 self.at_watch(call)
             if self.services_link:
                 self.pump_pty()
@@ -5001,7 +5020,8 @@ class EiconSipEndpoint:
         are clear -- that is the firmware's statement that it overwrote
         GEN_SETUP1 with the negotiated rate.
         """
-        if self.at is None or call.at_connected:
+        if call.at_connected or (self.at is None
+                and getattr(self, 'audio_monitor', None) is None):
             return
         card = getattr(call.card, 'card', call.card)
         rate = card.dm[0x3EE0 + 0x01]
@@ -5013,8 +5033,9 @@ class EiconSipEndpoint:
             rx = call.card.negotiated_upstream_bps
             call.at_connected = True
             modem_log.debug(f'[at] CONNECT V34 TX {tx} RX {rx} bit/s LAPM')
-            self.pty.write_terminal(self.at.connected(
-                tx, rx, 'V34', 'LAPM', modem_log.compression_name(lapm)))
+            if self.at is not None and self.pty is not None:
+                self.pty.write_terminal(self.at.connected(
+                    tx, rx, 'V34', 'LAPM', modem_log.compression_name(lapm)))
             return
         if not rate or (rate & 0x1FC0):
             # In raw fallback the WDB rate word may never be republished,
@@ -5050,7 +5071,7 @@ class EiconSipEndpoint:
         modem_log.debug(f'[at] CONNECT {carrier} downstream {downstream} bit/s, '
               f'upstream {upstream or "?"} bit/s '
               f'(rate word 0x{rate:04x})')
-        if self.pty is not None:
+        if self.at is not None and self.pty is not None:
             self.pty.write_terminal(
                 self.at.connected(downstream, upstream, carrier, protocol,
                                   modem_log.compression_name(lapm)))
@@ -5098,6 +5119,9 @@ class EiconSipEndpoint:
         if self.call is None:
             return
         modem_log.info(f'[call] ended by {reason}')
+        monitor = getattr(self, 'audio_monitor', None)
+        if monitor is not None:
+            monitor.update(active=False)
         # Before anything else releases the call: the wire clock is a thread
         # holding this object, and it must not be sending for a call that has
         # been torn down under it.
@@ -5138,6 +5162,9 @@ class EiconSipEndpoint:
         one in steady-state V.90 have nothing in common.
         """
         call = self.call
+        monitor = getattr(self, 'audio_monitor', None)
+        if monitor is not None:
+            monitor.update(active=False)
         traceback.print_exc()
         if call is None:
             return
@@ -5232,6 +5259,9 @@ class EiconSipEndpoint:
             # goes on believing this extension is busy long after the process
             # is gone.
             self.hangup_call('shutdown')
+            monitor = getattr(self, 'audio_monitor', None)
+            if monitor is not None:
+                monitor.close()
             # Before the sockets go: this needs self.sip still open, and the
             # registrar would otherwise keep qualifying a dead contact.
             self.deregister()
@@ -5309,6 +5339,9 @@ def main() -> int:
     compression.add_argument('--tx-v44', action='store_true',
                     help='negotiate V.44 compression on the experimental '
                          'V.42 endpoint (requires --tx-v42)')
+    ap.add_argument('--audio-monitor', action='store_true',
+                    help='play modem RX/TX locally using paplay; ATM0/1/2 and '
+                         'ATL0..3 control the speaker (default M1 L2)')
     ap.add_argument('--pty-link', metavar='PATH',
                     help='publish the allocated PTY through a stable symlink (requires --v42-pty)')
     ap.add_argument('--v42-pty', action='store_true',
@@ -5824,7 +5857,8 @@ def main() -> int:
                                      if ':' in field else 0)
                                     for field in args.watch_dm_writes.split(',')
                                     if field.strip()),
-                                analog_codec_rate=args.analog_codec_rate)
+                                analog_codec_rate=args.analog_codec_rate,
+                                audio_monitor=args.audio_monitor)
     signal.signal(signal.SIGINT, lambda *_: setattr(endpoint, 'running', False))
     signal.signal(signal.SIGTERM, lambda *_: setattr(endpoint, 'running', False))
     try:
