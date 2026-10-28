@@ -45,6 +45,10 @@ class PtyLink:
         # AT command mode, where ATE1 echo is the parser's job and this stays
         # the right setting for the same reason.
         tty.setraw(self.slave)
+        # devpts normally assigns the tty group. Service clients instead join
+        # the emulator's primary group; changing to that group needs no root.
+        os.fchown(self.slave, -1, os.getegid())
+        os.fchmod(self.slave, 0o660)
         os.set_blocking(self.master, False)
         self.name = os.ttyname(self.slave)
         self.read_chunk = read_chunk

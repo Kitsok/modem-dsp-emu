@@ -1,0 +1,6 @@
+#!/usr/bin/python3
+"""Installed entrypoint; runtime imports never depend on the working directory."""
+import sys
+sys.path.insert(0, '/usr/lib/modem-emu/tools')
+from modem_service import main
+raise SystemExit(main())

@@ -1,0 +1,32 @@
+[Unit]
+Description=Analog modem SIP emulator
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=modem-emu
+Group=modem-emu
+ExecStartPre=/usr/bin/modem-emu --check-config
+ExecStart=/usr/bin/modem-emu
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=15
+RuntimeDirectory=modem-emu
+RuntimeDirectoryMode=0755
+StateDirectory=modem-emu
+StateDirectoryMode=0750
+UMask=0007
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONNOUSERSITE=1
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_INET AF_UNIX
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

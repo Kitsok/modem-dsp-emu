@@ -193,6 +193,19 @@ Set `network.dial_target` to the ATA address before using ATDT. A missing
 implicit default file uses built-in defaults; an explicit missing file fails.
 The development `run.sh` remains a separate preset launcher.
 
+`bin/modem-emu` is the installed entrypoint for `/usr/lib/modem-emu/tools`.
+The definitions in `systemd/` run it as the `modem-emu` account/group after
+networking, create `/run/modem-emu` and `/var/lib/modem-emu`, and send logs to
+the journal. The service starts idle, restarts on failure, and uses SIGINT for
+shutdown. `/dev/modem-emu` remains a tmpfiles-managed symlink; PTYs belong
+to the service account's primary group with mode 0660. Add terminal users to
+that group and start a fresh login session before opening the terminal.
+
+The root integration test `python3 tests/integration_systemd.py "$PWD"`
+stages a temporary runtime, verifies group access and access denial, tests
+crash recovery, and removes its temporary service. It creates the service
+account if needed and leaves that account available for later deployment.
+
 ### Listen and advertised addresses
 
 Both `--bind` and `--advertise` default to `0.0.0.0`. Binding to the wildcard
