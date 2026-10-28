@@ -45,7 +45,7 @@ testing and restored afterward. The emulator service was restarted and left
 idle, active and enabled for boot. An actual reboot was explicitly declined;
 boot enablement and restart/recovery were verified instead.
 
-## Final state and reproduction
+## Initial local1 state and reproduction
 
 - `/etc/modem-emu.conf` targets `192.168.196.29:5060`, with wildcard listening
   and automatic advertised-address selection.
@@ -62,3 +62,17 @@ explicitly when preparing the final host configuration.
 connection, send completion or payload verification is missing. It requires
 exclusive access to the physical serial port and a separately managed getty
 stop/restore around the test.
+
+## local2 dialout upgrade
+
+Version 0.1.0+local2 changes the service's process group to standard `dialout`.
+The PTY is now owned by `modem-emu:dialout`, mode 0660. The private service
+account group remains for account identity, but is not a terminal-access
+group. The local kostik account was added to dialout and removed from the
+previous terminal group; existing sessions must refresh their group list.
+
+The native tests, all 188 runtime tests, archive checks and systemd
+permission/recovery integration passed. The installed upgrade preserved
+`/etc/modem-emu.conf`. An AT exchange as kostik passed, while unrelated users
+and a process with only the private service group were denied terminal
+access. The service remained active and enabled. No reboot was performed.

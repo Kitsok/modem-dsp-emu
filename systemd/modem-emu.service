@@ -6,7 +6,7 @@ After=network-online.target
 [Service]
 Type=simple
 User=modem-emu
-Group=modem-emu
+Group=dialout
 ExecStartPre=/usr/bin/modem-emu --check-config
 ExecStart=/usr/bin/modem-emu
 Restart=on-failure

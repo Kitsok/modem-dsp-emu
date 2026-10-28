@@ -23,12 +23,14 @@ try:
  wait_link()
  path=Path('/run/modem-emu-check/tty');s=path.stat()
  assert s.st_uid==pwd.getpwnam('modem-emu').pw_uid
- assert s.st_gid==grp.getgrnam('modem-emu').gr_gid
+ assert s.st_gid==grp.getgrnam('dialout').gr_gid
  assert stat.S_IMODE(s.st_mode)==0o660
  code="import os,select; f=os.open('/run/modem-emu-check/tty',os.O_RDWR|os.O_NOCTTY|os.O_NONBLOCK);os.write(f,b'AT\\r');assert select.select([f],[],[],3)[0];assert b'OK' in os.read(f,4096);os.close(f)"
- run('runuser','-u','nobody','-g','modem-emu','--','/usr/bin/python3','-c',code)
+ run('runuser','-u','nobody','-g','dialout','--','/usr/bin/python3','-c',code)
  denied=subprocess.run(['runuser','-u','nobody','--','/usr/bin/python3','-c',"open('/run/modem-emu-check/tty','rb')"],capture_output=True)
  assert denied.returncode!=0
+ old_group=subprocess.run(['runuser','-u','nobody','-g','modem-emu','--','/usr/bin/python3','-c',"open('/run/modem-emu-check/tty','rb')"],capture_output=True)
+ assert old_group.returncode!=0, 'Private service group unexpectedly has terminal access'
  pid=int(run('systemctl','show','--property=MainPID','--value','modem-emu-check').stdout)
  os.kill(pid,signal.SIGKILL)
  deadline=time.monotonic()+10

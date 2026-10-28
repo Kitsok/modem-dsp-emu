@@ -84,7 +84,7 @@ volatile settings unless explicitly saved on the modem.
 ## Stable terminal
 
 For the packaged service, open `tio /dev/modem-emu` from a login session
-that belongs to the `modem-emu` group. The service owns the runtime directory
+that belongs to the standard `dialout` group. The service owns the runtime directory
 and publishes the current PTY through the public symlink. See
 [the service guide](service.md) for installation and permissions.
 

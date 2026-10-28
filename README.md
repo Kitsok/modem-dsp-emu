@@ -203,7 +203,7 @@ This package is for private deployment. The repository provides no general
 redistribution grant for the project or extracted firmware; redistribution
 rights remain unverified. The native core identifies BSD-3-Clause attribution,
 which is retained in `debian/copyright`. No public redistribution is implied.
-Run `python3 -S tests/check_deb.py ../modem-emu_0.1.0+local1_amd64.deb` to check
+Run `python3 -S tests/check_deb.py ../modem-emu_0.1.0+local2_amd64.deb` to check
 the built archive without installing it.
 
 ### Configuration launcher
@@ -220,12 +220,12 @@ implicit default file uses built-in defaults; an explicit missing file fails.
 The development `run.sh` remains a separate preset launcher.
 
 `bin/modem-emu` is the installed entrypoint for `/usr/lib/modem-emu/tools`.
-The definitions in `systemd/` run it as the `modem-emu` account/group after
+The definitions in `systemd/` run it as user `modem-emu` with group `dialout` after
 networking, create `/run/modem-emu` and `/var/lib/modem-emu`, and send logs to
 the journal. The service starts idle, restarts on failure, and uses SIGINT for
 shutdown. `/dev/modem-emu` remains a tmpfiles-managed symlink; PTYs belong
-to the service account's primary group with mode 0660. Add terminal users to
-that group and start a fresh login session before opening the terminal.
+to the standard `dialout` group with mode 0660. Add terminal users to
+`dialout` and start a fresh login session before opening the terminal.
 
 The root integration test `python3 tests/integration_systemd.py "$PWD"`
 stages a temporary runtime, verifies group access and access denial, tests

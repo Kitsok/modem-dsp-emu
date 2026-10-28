@@ -14,6 +14,7 @@ with tempfile.TemporaryDirectory() as directory:
            'usr/lib/modem-emu/tools/adsp2181emu/libadsp2181.dylib')
  for name in required:assert (root/name).is_file(),name
  assert '/etc/modem-emu.conf' in (root/'DEBIAN/conffiles').read_text()
+ assert 'Group=dialout\n' in (root/'usr/lib/systemd/system/modem-emu.service').read_text()
  postinst=(root/'DEBIAN/postinst').read_text()
  assert 'systemd-sysusers' in postinst, 'Missing service-account initialization'
  assert postinst.index('systemd-sysusers')<postinst.index('deb-systemd-invoke')

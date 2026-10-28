@@ -14,8 +14,8 @@ repository root, with the dependencies in `debian/control` installed:
 
 ```sh
 dpkg-buildpackage -us -uc -b
-python3 -S tests/check_deb.py ../modem-emu_0.1.0+local1_amd64.deb
-sudo apt install ../modem-emu_0.1.0+local1_amd64.deb
+python3 -S tests/check_deb.py ../modem-emu_0.1.0+local2_amd64.deb
+sudo apt install ../modem-emu_0.1.0+local2_amd64.deb
 ```
 
 The archive is architecture-specific and declares its native libc dependency.
@@ -23,7 +23,8 @@ Build on the target distribution or an appropriate build environment when
 moving to another architecture/distribution. The command above names the
 amd64 artifact; other architectures produce their corresponding suffix.
 
-Installation creates the `modem-emu` system account/group, enables the service
+Installation creates the `modem-emu` service account and its private group,
+runs the service with the standard `dialout` group, enables the service
 at boot and starts it idle. The installed runtime is under
 `/usr/lib/modem-emu`, with `/usr/bin/modem-emu` as its entrypoint. No files in
 `/home/kostik/work/modem-dsp-emu` are required by the installed service.
@@ -75,11 +76,12 @@ settings. Compatibility values are applied before DSP modules are imported.
 Grant the intended user access, then start a fresh login session:
 
 ```sh
-sudo usermod -aG modem-emu "$USER"
+sudo usermod -aG dialout "$USER"
 tio /dev/modem-emu
 ```
 
-The PTY is owned by the service account and primary group with mode 0660.
+The PTY is owned by `modem-emu:dialout` with mode 0660. Membership in the
+private `modem-emu` account group is not required for terminal access.
 `/dev/modem-emu` points through `/run/modem-emu/tty` to the current PTY. The
 path stays stable across service restarts, but an already open terminal must
 reconnect after a restart. Only one terminal client should read it at a time.
