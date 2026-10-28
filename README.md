@@ -230,7 +230,11 @@ EICON_MODULATION=v90a /tmp/eicon-venv/bin/python tools/eicon_adsp_sip.py \
 ```
 
 Attach to the printed PTY (`screen /dev/ttysNNN`, or minicom) and dial with
-`ATDT6001`. `ATD` creates the SIP INVITE, a 200 response seizes the native
+`ATDT6001`. Dialing waits for CONNECT or failure without an initial OK.
+A keypress during dialing or modem training aborts and reports NO CARRIER;
+the endpoint cancels the pending SIP INVITE or hangs up an answered call.
+After CONNECT, keypresses are data rather than a dialing abort.
+`ATD` creates the SIP INVITE, a 200 response seizes the native
 Analog POTS hook and starts RTP, and `ATH` sends BYE and returns on-hook. A SIP
 registrar may be used instead of `--dial-target`. Without `--tx-v42`, this PTY
 is deliberately call control only: it can dial and hang up, but does not carry

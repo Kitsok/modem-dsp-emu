@@ -1771,6 +1771,7 @@ class EiconSipEndpoint:
         self.originate_line_ready = originate_line_ready
         self.originate_v8 = originate_v8
         self.outgoing: dict | None = None
+        self.cancelled_outgoing: dict[str, dict] = {}
         self.dial_number = dial_number
         self.dial_target = dial_target
         self.tx_prbs = tx_prbs
@@ -4558,6 +4559,7 @@ class EiconSipEndpoint:
         passes the other instance's address directly and needs no registrar
         at all.
         """
+        self.prune_cancelled_outgoing()
         if self.call or self.outgoing:
             modem_log.info('[sip] already on a call; not dialling')
             return False
@@ -4647,8 +4649,8 @@ class EiconSipEndpoint:
             auth += f', opaque="{challenge["opaque"]}"'
         return auth
 
-    def send_ack(self, headers: dict) -> None:
-        out = self.outgoing
+    def send_ack(self, headers: dict, out: dict | None = None) -> None:
+        out = self.outgoing if out is None else out
         peer = out['peer']
         local_ip = local_address_for(peer, self.bind, self.advertised)
         uri = f'sip:{out["number"]}@{out["host"]}'
@@ -4663,10 +4665,13 @@ class EiconSipEndpoint:
                  'Content-Length: 0', '', '']
         self.sip.sendto('\r\n'.join(lines).encode(), peer)
 
-    def send_bye(self) -> None:
+    def send_bye(self, out: dict | None = None) -> None:
         """Hang up a call this side originated."""
-        out = self.outgoing
-        if not out or not self.call:
+        if out is None:
+            if self.call is None:
+                return
+            out = self.outgoing
+        if not out:
             return
         peer = out['peer']
         local_ip = local_address_for(peer, self.bind, self.advertised)
@@ -4683,13 +4688,73 @@ class EiconSipEndpoint:
                  'Content-Length: 0', '', '']
         self.sip.sendto('\r\n'.join(lines).encode(), peer)
 
+    def prune_cancelled_outgoing(self) -> None:
+        now = time.monotonic()
+        self.cancelled_outgoing = {
+            key: value for key, value in self.cancelled_outgoing.items()
+            if value['expires'] > now}
+
+    def send_cancel(self, out: dict) -> None:
+        if out.get('cancel_sent'):
+            return
+        peer = out['peer']
+        local_ip = local_address_for(peer, self.bind, self.advertised)
+        uri = f'sip:{out["number"]}@{out["host"]}'
+        # CANCEL reuses the INVITE transaction's branch and sequence number.
+        lines = [f'CANCEL {uri} SIP/2.0',
+                 f'Via: SIP/2.0/UDP {local_ip}:{self.sip_port};'
+                 f'branch={out["branch"]};rport',
+                 f'From: <sip:{self.username or "eicon"}@{out["host"]}>;'
+                 f'tag={out["tag"]}', f'To: <{uri}>',
+                 f'Call-ID: {out["call_id"]}',
+                 f'CSeq: {out["cseq"]} CANCEL', 'Content-Length: 0', '', '']
+        self.sip.sendto('\r\n'.join(lines).encode(), peer)
+        out['cancel_sent'] = True
+        modem_log.info('[call] SIP CANCEL sent: terminal aborted dialing')
+
+    def abort_dial(self) -> bytes:
+        if self.call is not None:
+            self.hangup_call('dial aborted by terminal input')
+            return b''
+        out = self.outgoing
+        if out is not None:
+            out['expires'] = time.monotonic() + 32
+            self.cancelled_outgoing[out['call_id']] = out
+            # SIP requires a provisional response before sending CANCEL.
+            if out.get('provisional'):
+                self.send_cancel(out)
+            self.outgoing = None
+            self.dialed_card = None
+            self.pending_analog_line = None
+        modem_log.info('[call] dialing aborted by terminal input')
+        return self.at.no_carrier()
+
     def on_invite_response(self, status: int, headers: dict, body: str,
                            peer: tuple) -> None:
         """Drive the originating call through its response codes."""
+        self.prune_cancelled_outgoing()
+        cancelled = self.cancelled_outgoing.get(headers.get('call-id', ''))
+        if cancelled is not None:
+            if peer != cancelled['peer']:
+                return
+            if status < 200:
+                self.send_cancel(cancelled)
+            else:
+                self.send_ack(headers, cancelled)
+                if status < 300:
+                    # An answer can race CANCEL: ACK it, then end the dialog
+                    # without starting media or reporting CONNECT to the DTE.
+                    cancelled['remote_to'] = headers.get('to', '')
+                    self.send_bye(cancelled)
+                    modem_log.info('[call] late answer after dial abort: BYE sent')
+            return
         out = self.outgoing
-        if not out:
+        if not out or headers.get('call-id') != out['call_id']:
+            return
+        if peer != out['peer']:
             return
         if status < 200:
+            out['provisional'] = True
             if self.verbose or status in (180, 183):
                 modem_log.info(f'[sip] outgoing call: {status}')
             return
@@ -4847,6 +4912,8 @@ class EiconSipEndpoint:
         from eicon_at import ActionKind
         if self.at is None:
             return b''
+        if action.kind is ActionKind.ABORT_DIAL:
+            return self.abort_dial()
         if action.kind is ActionKind.DIAL:
             if not self.dial(action.number, self.dial_target or None):
                 return self.at.respond('NO CARRIER')
@@ -5001,6 +5068,8 @@ class EiconSipEndpoint:
                 # A shutdown path must not fail because the socket already
                 # went; the call is over either way.
                 modem_log.warning(f'[call] could not send BYE: {exc}')
+        elif self.outgoing is not None:
+            self.send_bye()
         self.end_call(reason)
 
     def end_call(self, reason: str) -> None:

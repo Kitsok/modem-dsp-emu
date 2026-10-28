@@ -232,6 +232,37 @@ class ProfileTests(AtTestCase):
 
 
 class CallControlTests(AtTestCase):
+    def test_dial_waits_for_connection_instead_of_returning_ok(self):
+        for command in (b'ATD100', b'ATDT100', b'ATDP100', b'atdt100'):
+            for numeric in (False, True):
+                with self.subTest(command=command, numeric=numeric):
+                    parser = AtParser()
+                    parser.verbose = not numeric
+                    self.assertEqual(parser.execute(command), b'')
+                    self.assertEqual(parser.actions[-1].kind, ActionKind.DIAL)
+                    self.assertEqual(parser.actions[-1].number, '100')
+                    reply = parser.connected(31200, 14400, 'V34', 'LAPM', 'V42BIS')
+                    self.assertIn(b'1' if numeric else b'CONNECT', reply)
+
+    def test_dial_failure_is_the_first_result(self):
+        events = []
+        parser = AtParser(event_logger=lambda event, **fields: events.append((event, fields)))
+        self.assertEqual(parser.execute(b'ATDT100'), b'')
+        self.assertEqual([event for event, _ in events], ['command'])
+        self.assertEqual(parser.no_carrier(), b'\r\nNO CARRIER\r\n')
+        self.assertEqual(events[-1][1]['result'], 'NO CARRIER')
+
+    def test_repeated_dial_also_waits_for_connection(self):
+        self.assertEqual(self.at.execute(b'ATDT100'), b'')
+        self.at.no_carrier()
+        self.assertEqual(self.at.execute(b'A/'), b'')
+        self.assertEqual(self.at.actions[-1].number, '100')
+
+    def test_normal_commands_still_return_ok_after_dial(self):
+        self.at.execute(b'ATDT100')
+        self.at.no_carrier()
+        self.assertEqual(self.at.execute(b'AT'), b'\r\nOK\r\n')
+
     def test_dial_queues_the_number(self):
         self.send('ATDT6001')
         action = self.at.actions[-1]

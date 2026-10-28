@@ -60,6 +60,7 @@ class Mode(Enum):
 
 class ActionKind(Enum):
     DIAL = "dial"
+    ABORT_DIAL = "abort-dial"
     ANSWER = "answer"
     HANGUP = "hangup"
     ONLINE = "online"       # ATO: return to data mode without redialling
@@ -204,6 +205,8 @@ class AtParser:
         self._fax_operation = ""
         self._fax_payload = bytearray()
 
+        self.dial_pending = False
+        self._dial_ignore_lf = False
         self.last_dialled = ""
         self.last_caller = ""
         self.last_connect_text = ""
@@ -347,6 +350,18 @@ class AtParser:
         lf = self.registers[4]
         bs = self.registers[5]
         for byte in data:
+            if self.dial_pending:
+                # CRLF may be split across terminal writes. Only the LF that
+                # completes the dial command is framing, not an abort key.
+                if self._dial_ignore_lf and byte == lf:
+                    self._dial_ignore_lf = False
+                    continue
+                self.dial_pending = False
+                self._dial_ignore_lf = False
+                self._line.clear()
+                self._log_event('dial-abort', reason='terminal input')
+                self.actions.append(AtAction(ActionKind.ABORT_DIAL))
+                return bytes(out)
             if byte == bs:
                 if self._line:
                     self._line.pop()
@@ -457,6 +472,8 @@ class AtParser:
                   carrier: str = "", protocol: str = "",
                   compression: str = "") -> bytes:
         """Report a connection.  ATX and AT\\V pick how much detail."""
+        self.dial_pending = False
+        self._dial_ignore_lf = False
         self._log_event('CONNECT', tx_bps=tx_speed, rx_bps=rx_speed,
                         modulation=carrier, protocol=protocol,
                         compression=compression, suppressed=self.quiet)
@@ -482,6 +499,9 @@ class AtParser:
         return self._format(text)
 
     def no_carrier(self) -> bytes:
+        self.dial_pending = False
+        self._dial_ignore_lf = False
+        self._line.clear()
         self.mode = Mode.COMMAND
         self._escape_count = 0
         return self.respond("NO CARRIER")
@@ -531,6 +551,11 @@ class AtParser:
         rest = text[pos + 1:]
 
         if char == "D":
+            # Dialing is asynchronous: the endpoint supplies CONNECT or the
+            # failure result. An immediate OK would prematurely finish ATD.
+            self._suppress_ok = True
+            self.dial_pending = True
+            self._dial_ignore_lf = True
             number, consumed = _dial_string(rest)
             self.last_dialled = number
             self.actions.append(AtAction(ActionKind.DIAL, number=number,

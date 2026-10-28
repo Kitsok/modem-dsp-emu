@@ -5,6 +5,12 @@ For the build-109 Analog kernel backend, use `--firmware-set analog109`,
 Add `--tx-v42bis` to request compression; the peer must also enable it.
 `--dial-target HOST:PORT` selects the SIP endpoint. Omit `--dial NUMBER` to
 start idle, attach to the printed PTY and use `ATDT100` to originate a call.
+Dial commands wait for CONNECT or a call failure; they do not return an
+immediate OK. Command echo may still appear while the call is dialing.
+Press any key while dialing or training to abort without pressing Enter;
+the terminal returns NO CARRIER. The CRLF ending the dial command is not
+an abort. Once CONNECT is reported, ordinary keypresses are modem data;
+use the guarded escape sequence and ATH to hang up instead.
 
 ## Build-109 Courier compatibility settings
 
