@@ -36,7 +36,7 @@ class PtyLink:
     """
 
     def __init__(self, read_chunk: int = 4096, log=print,
-                 at_parser=None, on_action=None) -> None:
+                 at_parser=None, on_action=None, link_path=None) -> None:
         self.master, self.slave = pty.openpty()
         # Raw: no echo and no CR/LF translation on the way through. The far
         # modem's terminal is responsible for its own line discipline, and a
@@ -57,6 +57,18 @@ class PtyLink:
         # terminal data written during that interval instead of dropping it.
         self._pending_link = bytearray()
         self._closed = False
+        self.link_path = os.path.abspath(link_path) if link_path else None
+        if self.link_path:
+            try:
+                # Refuse to replace a live PTY or a regular file.
+                if os.path.islink(self.link_path) and not os.path.exists(self.link_path):
+                    os.unlink(self.link_path)
+                os.symlink(self.name, self.link_path)
+            except OSError:
+                os.close(self.master)
+                os.close(self.slave)
+                raise
+            self.log(f'[v42-pty] stable terminal: {self.link_path}')
         self.log(f'[v42-pty] terminal ready on {self.name} '
                  f'-- attach with: screen {self.name}')
 
@@ -170,6 +182,12 @@ class PtyLink:
         if self._closed:
             return
         self._closed = True
+        if self.link_path:
+            try:
+                if os.path.islink(self.link_path) and os.readlink(self.link_path) == self.name:
+                    os.unlink(self.link_path)
+            except FileNotFoundError:
+                pass
         for fd in (self.master, self.slave):
             try:
                 os.close(fd)

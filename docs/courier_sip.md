@@ -51,3 +51,40 @@ not a repeat of the two-way integrity test with compression enabled.
 Keep the Courier serial terminal open so DTR and RTS are asserted. Use
 `AT&M5S0=1` to require error correction and enable autoanswer. These are
 volatile settings unless explicitly saved on the modem.
+
+## Stable terminal on dev
+
+`--pty-link PATH` requires `--v42-pty` and creates a symlink to the allocated
+terminal. Startup replaces a dangling symlink but refuses to replace a
+regular file or a symlink to an existing target. Closing the terminal
+removes the symlink only if it still points to that instance's PTY.
+The parent directory must already exist and be writable by the process.
+
+The included `run.sh` is the dev host launcher: it binds and advertises
+`172.20.20.207`, sends calls to `192.168.196.29:5060`, enables V.42bis and
+the compatibility settings above, and starts idle for `ATDT100`.
+It publishes the PTY at `/run/modem-emu/tty`. Adjust the addresses for
+another host and run the script from the repository root.
+
+Install the supplied tmpfiles configuration once on dev:
+
+```bash
+sudo install -m 0644 config/modem-emu.conf /etc/tmpfiles.d/modem-emu.conf
+sudo systemd-tmpfiles --create /etc/tmpfiles.d/modem-emu.conf
+```
+
+This creates `/run/modem-emu` owned by `kostik` and a root-owned
+`/dev/modem-emu` symlink pointing to `/run/modem-emu/tty`. Systemd tmpfiles
+recreates these paths at boot. Change the owner and group in the supplied
+configuration before installing it for another account. The emulator runs
+without root privileges and updates only the symlink in its runtime directory.
+
+```bash
+./run.sh
+# In another terminal on dev:
+screen /dev/modem-emu
+```
+
+Type `AT` and expect `OK`, then type `ATDT100`. The public path stays the
+same across emulator restarts even when Linux allocates a different PTY.
+`/dev/modem-emu` is dangling while the emulator is stopped.

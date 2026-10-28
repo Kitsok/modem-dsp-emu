@@ -189,6 +189,12 @@ up, so `ATS0=0`, `AT+MS=` and the S-registers can be set *before* the INVITE
 lands, which is when they have to be set: `+IE` reaches the CAI of the next
 call, not the one in progress.
 
+Use `--pty-link PATH` with `--v42-pty` to publish a stable symlink to the
+allocated terminal. The parent directory must be writable. A dangling link
+is replaced at startup; a regular file or live link is left untouched and
+startup fails. See [the Courier guide](docs/courier_sip.md#stable-terminal-on-dev)
+for a persistent `/dev/modem-emu` setup without running the emulator as root.
+
 The terminal can also originate a SIP call. For the build-109 Analog card:
 
 ```bash
@@ -223,7 +229,8 @@ answers XID and SABME, acknowledges received I frames, and transmits its own:
 `send()` segments a byte stream into N401-sized I frames, tracks V(S)/V(A)
 against the window, honours incoming N(R), stops on RNR and goes back N on REJ.
 Add `--tx-v42bis` to negotiate V.42bis compression with a capable peer.
-XID negotiates compression as well as the V.42 N401 and window parameters; the local defaults are k=15 and N401=128. The optional-functions
+XID negotiates compression as well as the V.42 N401 and window parameters;
+the local defaults are k=15 and N401=128. The optional-functions
 mask carries the six bit positions Table 11a/V.42 requires of every XID
 transmitter (`0x0000898A`) and none of the four optional procedures of
 clause 10, which are unimplemented. Frames are addressed per Table 6/V.42 —

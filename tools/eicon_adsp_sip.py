@@ -1665,7 +1665,7 @@ class EiconSipEndpoint:
                  tick_budget_ms: float = 18.0, tx_buffer_ms: int = 160,
                  mips_interval: int = 160,
                  realtime: bool = False,
-                 v42_pty: bool = False, at_terminal: bool = False,
+                 v42_pty: bool = False, at_terminal: bool = False, pty_link: str = "",
                  ppp_config=None, ppp_pool=None, ppp_network=None,
                  ppp_ping: str | None = None, ppp_ping_count: int = 4,
                  ppp_file_upload: Path | None = None,
@@ -1802,7 +1802,7 @@ class EiconSipEndpoint:
                 # terminal) leaves the call ringing until ATA.
                 self.at.registers[0] = 1
             self.pty = PtyLink(at_parser=self.at,
-                               on_action=self.on_at_action)
+                               on_action=self.on_at_action, link_path=pty_link or None)
         # PPP is per call, not per endpoint: each caller gets a fresh peer, so
         # one client's failed authentication or half-closed link cannot be
         # inherited by the next.  Only the configuration lives up here.
@@ -5204,6 +5204,8 @@ def main() -> int:
     compression.add_argument('--tx-v44', action='store_true',
                     help='negotiate V.44 compression on the experimental '
                          'V.42 endpoint (requires --tx-v42)')
+    ap.add_argument('--pty-link', metavar='PATH',
+                    help='publish the allocated PTY through a stable symlink (requires --v42-pty)')
     ap.add_argument('--v42-pty', action='store_true',
                     help='allocate a pseudo-terminal and print its path; with '
                          '--at it can provide ATD/ATA/ATH call control even '
@@ -5514,6 +5516,8 @@ def main() -> int:
         ap.error('--tx-v42bis requires --tx-v42')
     if args.tx_v44 and not args.tx_v42:
         ap.error('--tx-v44 requires --tx-v42')
+    if args.pty_link and not args.v42_pty:
+        ap.error('--pty-link requires --v42-pty')
     if args.at and not args.v42_pty:
         ap.error('--at requires --v42-pty')
     ppp_config = None
@@ -5674,7 +5678,7 @@ def main() -> int:
                                 args.catchup_quanta, args.tick_budget_ms,
                                 args.tx_buffer_ms,
                                 args.mips_interval, realtime=args.realtime, v42_pty=args.v42_pty,
-                                at_terminal=args.at,
+                                at_terminal=args.at, pty_link=args.pty_link,
                                 ppp_config=ppp_config, ppp_pool=ppp_pool,
                                 ppp_network=ppp_network,
                                 ppp_ping=args.ppp_ping,
