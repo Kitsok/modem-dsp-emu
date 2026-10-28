@@ -799,6 +799,9 @@ class AnalogKernelModem:
             # measurement control, not a firmware pin.  The page reads the
             # shift as its LMS update is entered, after this boundary.
             self.dm[0x2121] = int(V90A_EQ_SHIFT, 0) & 0xFFFF
+        mailbox = self.__dict__.get("_codec_mailbox")
+        if mailbox is not None:
+            mailbox.before_sample()
         self.driver.frame(word & 0xFFFF, budget)
         self.driver.service(sample_index)
         # Keep the kernel-dispatch backend on the same live state-exchange
@@ -864,6 +867,8 @@ class AnalogKernelModem:
                       f'(sample {sample_index}, pins {self._pins_applied})')
         if self.card.resident != before:
             self.resident = self.card.resident
+        if mailbox is not None:
+            mailbox.after_sample()
         use_sport_tx = (ANALOG_USE_SPORT_TX or
                         (ANALOG_USE_SPORT_TX_AFTER_V90A
                          and self.card.resident == 0x026B))

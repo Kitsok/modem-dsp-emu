@@ -847,6 +847,7 @@ class Call:
     analog_line: object | None = None
     reactive_engine: object | None = None
     v34_mailbox: object | None = None
+    codec_mailbox: bool = False
     analog_digits_reported: int = 0
     # Enough of the inbound dialog to hang up on the caller. A UAS BYE swaps
     # the roles the INVITE established: our To becomes the From and carries
@@ -3533,10 +3534,12 @@ class EiconSipEndpoint:
                         signed_word * V90D_RX_GAIN[1]))))
                 if self.capture is not None:
                     self.capture.write_fed(code, line_word)
-                if call.v34_mailbox is not None:
+                if (call.v34_mailbox is not None
+                        and not getattr(call, "codec_mailbox", False)):
                     call.v34_mailbox.before_sample()
                 produced = call.card.frame_fast(line_word, call.samples)
-                if call.v34_mailbox is not None:
+                if (call.v34_mailbox is not None
+                        and not getattr(call, "codec_mailbox", False)):
                     call.v34_mailbox.after_sample()
                 if (V90D_RESULT_OVERRIDE is not None
                         and call.card.resident == 0x026A
@@ -4749,6 +4752,7 @@ class EiconSipEndpoint:
                 role=('originator' if self.modem_role == 'calling'
                       else 'answerer'),
                 detect=os.environ.get('EICON_V42_DETECT', '1') != '0',
+                detect_timeout=_v42_int('EICON_V42_DETECT_TIMEOUT', 600),
                 # The reactive V.90 bridge has a multi-second media startup
                 # cushion and can briefly stop delivering reverse RTP while
                 # the analogue engine catches up.  The native 120/240-tick
@@ -4773,6 +4777,11 @@ class EiconSipEndpoint:
             claim_tx_mailbox(call.card.pm)
             claim_wide_rx_mailbox(call.card.pm)
             call.v34_mailbox = V34Mailbox(call.card, data_link)
+            if (self.kernel_dispatch and dsp_drive.FIRMWARE_SET == 'analog109'
+                    and os.environ.get('EICON_CODEC_MAILBOX', '0') == '1'):
+                call.card._codec_mailbox = call.v34_mailbox
+                call.codec_mailbox = True
+                print('[v34-mailbox] polling at codec sample boundaries')
             print('[v34-mailbox] attached per-sample V.42 host interface')
         if DIGITAL_PHASE3_ENGINE_BINARY:
             binary = Path(DIGITAL_PHASE3_ENGINE_BINARY)
@@ -4898,6 +4907,16 @@ class EiconSipEndpoint:
         card = getattr(call.card, 'card', call.card)
         rate = card.dm[0x3EE0 + 0x01]
         lapm = getattr(call.card, 'lapm', None)
+        if (call.v34_mailbox is not None and lapm is not None
+                and lapm.connected and call.card.resident == 0x0261
+                and card.dm[0x3FC2] == 0xD0):
+            tx = call.card.negotiated_downstream_bps
+            rx = call.card.negotiated_upstream_bps
+            call.at_connected = True
+            print(f'[at] CONNECT V34 TX {tx} RX {rx} bit/s LAPM')
+            self.pty.write_terminal(self.at.connected(
+                tx, rx, 'V34', 'LAPM', 'NONE'))
+            return
         if not rate or (rate & 0x1FC0):
             # In raw fallback the WDB rate word may never be republished,
             # although DATASTATE has already established the bearer. Without

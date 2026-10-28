@@ -222,8 +222,8 @@ decodes the upstream synchronous mailbox,
 answers XID and SABME, acknowledges received I frames, and transmits its own:
 `send()` segments a byte stream into N401-sized I frames, tracks V(S)/V(A)
 against the window, honours incoming N(R), stops on RNR and goes back N on REJ.
-It still does not implement V.42bis. XID negotiates the V.42 N401 and window
-parameters; the local defaults are k=15 and N401=128. The optional-functions
+Add `--tx-v42bis` to negotiate V.42bis compression with a capable peer.
+XID negotiates compression as well as the V.42 N401 and window parameters; the local defaults are k=15 and N401=128. The optional-functions
 mask carries the six bit positions Table 11a/V.42 requires of every XID
 transmitter (`0x0000898A`) and none of the four optional procedures of
 clause 10, which are unimplemented. Frames are addressed per Table 6/V.42 —
@@ -252,7 +252,9 @@ sends mark until four DC1s of alternating parity arrive, then sends the
 "V.42 supported" ADP ten times; the originator sends ODP until it sees two
 adjacent ADPs. Both then enter protocol establishment. Without this exchange
 an originator may fall back to no error control -- a Courier reports `Protocol NONE` and both directions become
-garbage (Session 86). `EICON_V42_DETECT=0` restores the old behaviour.
+garbage (Session 86). `EICON_V42_DETECT=0` restores the old behaviour. The originator accepts
+8–16 mark bits between ADP characters. For build-109 Analog kernel dispatch
+and Courier interoperability settings, see [the Courier guide](docs/courier_sip.md).
 
 ### PPP over the V.42 link
 

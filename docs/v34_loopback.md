@@ -53,18 +53,16 @@ the caller's first `0x00d0` transition does not include DCD.
 
 ## Remaining work
 
-The direct Card and Analog kernel wrapper do not service the synchronous
-TX/RX mailboxes for V.42. `eicon_adsp_sip.py` therefore rejects `--tx-v42`
-unless a native MIPS backend or reactive V.90 engine is selected. Adding
-`--ppp` to the command above cannot validate V.34 payload delivery.
+The SIP endpoint now services the synchronous V.34 TX/RX mailbox through
+`V34Mailbox`. Build-109 Analog kernel dispatch can poll at codec boundaries
+with `EICON_CODEC_MAILBOX=1`; see [the Courier guide](courier_sip.md) for the
+associated data-ready, transmit-consumption and LAPM negotiation settings.
+The earlier restriction to native MIPS or reactive V.90 for `--tx-v42` no
+longer describes the current SIP implementation.
 
-The next implementation step is to share the native shim's synchronous
-mailbox service with these backends, preserving per-sample service, negotiated
-datagram widths, bit order and retrain handling. Then test LAPM establishment,
-PPP authentication/IPCP and peer ping replies. The cause of the repeated
-retraining is not yet established; absence of a host data source is not proof
-that it causes the signal failure. Hardware interoperability remains untested
-by this loopback.
+These changes provide a host data path; they do not establish the cause of
+the repeated retraining in the historical loopback above. PPP negotiation
+and peer ping replies still require their own validation.
 
 Validation: 122 unit tests passed across `test_eicon_idi.py`,
 `test_eicon_at.py` and `test_direct_modulation.py`; emulator build and

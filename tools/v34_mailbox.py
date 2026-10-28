@@ -100,6 +100,15 @@ class V34Mailbox:
         self.card = card
         self.lapm = lapm
         self.active = False
+        # TIKRNL can clear and reassert TX request within one codec tick.
+        # A flag sampled only between ticks misses that acknowledgement and
+        # repeats a word. The guarded reader count records real consumption.
+        self.read_ack = os.environ.get("EICON_V34_TX_CONSUMPTION", "0") == "1"
+        self.tx_read_count = 0
+        self.reader_checked = False
+        if self.read_ack:
+            from dial_tikrnl_drive import ADSP
+            self.read_counter = ADSP.adsp2181_coverage_count
         self.pending = False
         self.tx_width = None
         self.rx_width = None
@@ -170,7 +179,9 @@ class V34Mailbox:
         # V90A publishes its downstream width transiently through 0xC6..0xCD
         # (0x21e4, 25 bits, before the final 0x21f1) and its receive is
         # training until 0xD0, so start LAPM -- and its T400 -- only there.
-        ready = (state == 0xD0 if page == V90A_ID else 0xC6 <= state <= 0xD0)
+        wait_for_data = (page == V90A_ID or
+                         os.environ.get("EICON_V34_DATA_READY", "0") == "1")
+        ready = (state == 0xD0 if wait_for_data else 0xC6 <= state <= 0xD0)
         if self.active or ready:
             tx, rx = self._widths()
             if tx:
@@ -217,6 +228,12 @@ class V34Mailbox:
             bits = bits + [1] * (16 - len(bits))
             dm[0x3F05] = sum(bit << (15 - i) for i, bit in enumerate(bits))
             dm[0x3F06] = dm[0x3F07] = 0
+        if self.read_ack and page == V34_ID:
+            if not self.reader_checked:
+                if self.card.pm[0x3F82] != 0x83F05A:
+                    raise RuntimeError("unexpected V.34 TXD0 reader layout")
+                self.reader_checked = True
+            self.tx_read_count = self.read_counter(self.card.cpu, 0x3F82)
         self.tx_requests += 1
         if page == V90A_ID:
             self.tx_accepted += 1
@@ -228,7 +245,11 @@ class V34Mailbox:
             self.pending = False
             return
         dm = self.card.dm
-        if self.pending and not dm[0x3FAD] & 0x8000:
+        consumed = not dm[0x3FAD] & 0x8000
+        if self.read_ack and self.card.resident == V34_ID:
+            consumed = self.read_counter(
+                self.card.cpu, 0x3F82) != self.tx_read_count
+        if self.pending and consumed:
             self.pending = False
             self.tx_accepted += 1
         if not self.active:

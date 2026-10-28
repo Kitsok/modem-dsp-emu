@@ -9,6 +9,7 @@ is responsible for packing them into data-pump words.
 from __future__ import annotations
 
 from collections import deque
+import os
 from dataclasses import dataclass
 
 from v42bis import (V42bisDecoder, V42bisEncoder, V42bisError,
@@ -423,6 +424,9 @@ class LapmEndpoint:
         self._odp_window: "deque[int]" = deque(maxlen=len(ODP_EVEN))
         self._adp_window: "deque[int]" = deque(maxlen=len(ADP_V42_SUPPORTED))
         self._adp_count = 0
+        self._adp_e_end = None
+        self._adp_c_end = None
+        self._adp_position = 0
         self._odp_count = 0
         self._odp_parity: int | None = None
         self.tx: "deque[int]" = deque() if detect else deque(FLAG_BITS)
@@ -437,6 +441,7 @@ class LapmEndpoint:
         # in XID frames, so it is learned from whatever the peer addresses.
         self.dlci = 0
         self._awaiting_ua = False
+        self._awaiting_xid = False
         self._originator = role == 'originator'
         self._compression_requested = compression
         self._compression_local = (V42bisParameters(
@@ -451,6 +456,8 @@ class LapmEndpoint:
             if v44 else None)
         self.xid = XidParameters(n401_tx=n401, n401_rx=n401,
                                  k_tx=window, k_rx=window,
+                                 optional_functions_octets=int(os.environ.get(
+                                     "EICON_V42_XID_OPT_OCTETS", "4")),
                                  v42bis=self._compression_local,
                                  v44=self._v44_local)
         self.tx_compressor: V42bisEncoder | V44Encoder | None = None
@@ -885,27 +892,54 @@ class LapmEndpoint:
         shape = ('peer is sending mark/idle' if mark > 97 else
                  'peer is sending data' if 35 < mark < 65 else
                  'peer stream is neither mark nor balanced data')
+        matches = (f'ADP matches {self._adp_count}' if self._originator
+                   else f'ODP matches {self._odp_count}')
         return (f'{self._detect_bits} bits scanned, {mark:.1f}% ones '
-                f'({shape}), ODP matches {self._odp_count}')
+                f'({shape}), {matches}')
 
     def _scan_adp(self, bits: list[int]) -> None:
-        """Originator-side detection: require two adjacent ADPs."""
+        """Match two adjacent EC patterns with 8..16 mark bits per gap."""
+        self._detect_bits += len(bits)
+        self._detect_ones += sum(bits)
         for bit in bits:
+            self._adp_position += 1
             self._adp_window.append(bit)
-            if (len(self._adp_window) == self._adp_window.maxlen
-                    and tuple(self._adp_window) == ADP_V42_SUPPORTED):
-                self._adp_count += 1
-                self.stats.adp_rx += 1
-                self._adp_window.clear()
-                if self._adp_count >= 2:
-                    self._begin_originator_protocol()
-                    return
+            tail = tuple(self._adp_window)[-10:]
+            if tail == ADP_E:
+                gap = (self._adp_position - 10 - self._adp_c_end
+                       if self._adp_c_end is not None else -1)
+                history = list(self._adp_window)
+                if not (8 <= gap <= 16 and
+                        all(history[-10-gap:-10])):
+                    self._adp_count = 0
+                self._adp_e_end = self._adp_position
+            elif tail == ADP_C and self._adp_e_end is not None:
+                gap = self._adp_position - 10 - self._adp_e_end
+                history = list(self._adp_window)
+                if 8 <= gap <= 16 and all(history[-10-gap:-10]):
+                    self._adp_count += 1
+                    self.stats.adp_rx += 1
+                    self._adp_c_end = self._adp_position
+                    if self._adp_count >= 2:
+                        self._begin_originator_protocol()
+                        return
+                else:
+                    self._adp_count = 0
+                self._adp_e_end = None
 
     def _begin_originator_protocol(self) -> None:
         """Stop ODP and initiate the protocol establishment phase."""
         self.detection = 'protocol'
+        ordered = os.environ.get('EICON_V42_ORDERED_ESTABLISH', '0') == '1'
+        if ordered:
+            self.tx.extend(FLAG_BITS * 16)
         self._queue(bytes((self.command_address, self.XID))
                     + encode_xid_parameters(self.xid), 'XID command')
+        self.stats.xid_tx += 1
+        if ordered:
+            self._awaiting_xid = True
+            self.log('[v42] waiting for XID response before SABME')
+            return
         self._queue(bytes((self.command_address, self.SABME_MASKED | 0x10)),
                     'SABME(P)')
         self._awaiting_ua = True
@@ -1060,6 +1094,12 @@ class LapmEndpoint:
                             + encode_xid_parameters(self.xid),
                             'XID response')
                 self.stats.xid_tx += 1
+            if self._originator and self._awaiting_xid and peer is not None:
+                self._awaiting_xid = False
+                self._queue(bytes((self.command_address,
+                                   self.SABME_MASKED | 0x10)), 'SABME(P)')
+                self._awaiting_ua = True
+                self._establish_ticks = self._retries = 0
         elif ucontrol == self.UA:
             if len(frame) != 2:
                 self._send_frmr(frame)
@@ -1218,6 +1258,18 @@ class LapmEndpoint:
             if self._inactivity >= self.inactivity_after:
                 self._disconnect('T403 inactivity')
                 return
+        if self._awaiting_xid:
+            self._establish_ticks += 1
+            if self._establish_ticks >= self.retransmit_after:
+                if self._retries >= self.n400:
+                    self._disconnect('T401 XID retry limit')
+                    return
+                self._queue(bytes((self.command_address, self.XID))
+                            + encode_xid_parameters(self.xid), 'XID retry')
+                self.stats.xid_tx += 1
+                self._retries += 1
+                self._establish_ticks = 0
+            return
         if self._awaiting_ua:
             self._establish_ticks += 1
             if self._establish_ticks >= self.retransmit_after:
