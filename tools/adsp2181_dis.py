@@ -11,6 +11,8 @@ transfer travelling with it -- taken from the same tables 2100ops.inc uses.
 
 from __future__ import annotations
 
+import modem_log
+
 import re
 import sys
 from pathlib import Path
@@ -282,12 +284,12 @@ def disas(op: int) -> str:
 
 def main() -> int:
     if len(sys.argv) != 4:
-        print(__doc__, file=sys.stderr)
+        modem_log.debug(__doc__, file=sys.stderr)
         return 2
     pm = load_pm(sys.argv[1])
     start, end = int(sys.argv[2], 0), int(sys.argv[3], 0)
     for a in range(start, end):
-        print(f"{a:04x}: {pm[a] & 0xFFFFFF:06x}  {disas(pm[a])}")
+        modem_log.debug(f"{a:04x}: {pm[a] & 0xFFFFFF:06x}  {disas(pm[a])}")
     return 0
 
 

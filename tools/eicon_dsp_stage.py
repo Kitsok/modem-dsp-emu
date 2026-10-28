@@ -45,6 +45,8 @@ search fails, and file set 5 (the PRI) is simply the set that omits it.
 
 from __future__ import annotations
 
+import modem_log
+
 import argparse
 import struct
 import sys
@@ -363,16 +365,16 @@ def main() -> int:
     base = args.base if args.base is not None else protocol_end_addr(args.image)
     dsp_image = build_dsp_code_image(args.combifile, args.card_type, base,
                                      extra_download_ids=args.extra_download)
-    print(f"card type {dsp_image.card_type} -> file set {dsp_image.file_set}: "
+    modem_log.debug(f"card type {dsp_image.card_type} -> file set {dsp_image.file_set}: "
           f"{len(dsp_image.downloads)} downloads")
-    print(f"DspCodeBaseAddr 0x{dsp_image.base_addr:08x}..0x{dsp_image.end_addr:08x} "
+    modem_log.debug(f"DspCodeBaseAddr 0x{dsp_image.base_addr:08x}..0x{dsp_image.end_addr:08x} "
           f"({len(dsp_image.data)} bytes)")
     for entry in dsp_image.downloads:
-        print(f"  id=0x{entry.download_id:04x} @0x{entry.address:08x} "
+        modem_log.debug(f"  id=0x{entry.download_id:04x} @0x{entry.address:08x} "
               f"{entry.size:7d}  {entry.description}")
     if args.output:
         args.output.write_bytes(dsp_image.data)
-        print(f"wrote {args.output}")
+        modem_log.debug(f"wrote {args.output}")
     return 0
 
 

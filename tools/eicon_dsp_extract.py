@@ -18,6 +18,8 @@ The text maps and metadata distinguish a loaded zero from an unpopulated gap.
 
 from __future__ import annotations
 
+import modem_log
+
 import argparse
 import hashlib
 import json
@@ -545,13 +547,13 @@ def main() -> int:
             for d in combi["downloads"]
             if required(d) and pattern.search(d["description"])
         ]
-        print(f"{args.combifile}: {combi['description']}")
+        modem_log.debug(f"{args.combifile}: {combi['description']}")
         card_text = (
             f", card_type={args.card_type}, file_set={file_set}"
             if args.card_type is not None
             else ""
         )
-        print(f"downloads={len(combi['downloads'])}, selected={len(selected)}{card_text}")
+        modem_log.debug(f"downloads={len(combi['downloads'])}, selected={len(selected)}{card_text}")
         shown = combi["downloads"] if args.list and file_set is None else (
             [d for d in combi["downloads"] if required(d)] if args.list else selected
         )
@@ -565,15 +567,15 @@ def main() -> int:
                 f"{download['description']}"
             )
             if args.list:
-                print(line)
+                modem_log.debug(line)
             else:
                 target = write_download(download, args.output)
-                print(f"{line} -> {target}")
+                modem_log.debug(f"{line} -> {target}")
         if not args.list and not selected:
-            print(f"no descriptions matched {args.match!r}", file=sys.stderr)
+            modem_log.debug(f"no descriptions matched {args.match!r}", file=sys.stderr)
             return 1
     except (OSError, FormatError, re.error) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        modem_log.debug(f"error: {exc}", file=sys.stderr)
         return 2
     return 0
 

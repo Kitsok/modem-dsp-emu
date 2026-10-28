@@ -8,6 +8,8 @@ the direct modem assignment with native IDI call control.
 """
 from __future__ import annotations
 
+import modem_log
+
 import ctypes
 import os
 from pathlib import Path
@@ -175,7 +177,7 @@ class AnalogMipsModem:
         if not ADSP.adsp2181_idle(self._dspdaa_cpu):
             raise RuntimeError('IDLE.ANA did not return to Analog kernel')
         self._native_dspdaa_running = True
-        print(f'[analog-mips] native DSPDAA running: {kernel}; {idle}')
+        modem_log.debug(f'[analog-mips] native DSPDAA running: {kernel}; {idle}')
 
     def boot(self) -> None:
         if self._booted:
@@ -201,7 +203,7 @@ class AnalogMipsModem:
         native_dm = self.mips.dsp_dm.get(self._selected_block or 0)
         native_pm = self.mips.dsp_pm.get(self._selected_block or 0)
         if self._trace_native_media_shadow:
-            print('[analog-mips] selected media shadow: '
+            modem_log.debug('[analog-mips] selected media shadow: '
                   f'block=0x{self._selected_block or 0:08x} '
                   f'PM={sum(bool(v) for v in native_pm or ())} '
                   f'DM={sum(bool(v) for v in native_dm or ())} '
@@ -227,7 +229,7 @@ class AnalogMipsModem:
                                    enumerate(native_pm) if value}
             ADSP.adsp2181_reset(self.card.cpu)
             ADSP.adsp2181_run(self.card.cpu, 20_000)
-            print(f"[analog-mips] attached native DSP kernel "
+            modem_log.debug(f"[analog-mips] attached native DSP kernel "
                   f"({sum(bool(v) for v in native_pm)} PM, "
                   f"{sum(bool(v) for v in native_dm)} DM words, "
                   f"idle={ADSP.adsp2181_idle(self.card.cpu)})")
@@ -235,7 +237,7 @@ class AnalogMipsModem:
             raise RuntimeError(
                 f"Analog audio route rejected: channel={selected} bitmap={bitmap.hex()}")
         self._booted = True
-        print(f"[analog-mips] POTS active; DSP block=0x{self._selected_block or 0:08x} "
+        modem_log.debug(f"[analog-mips] POTS active; DSP block=0x{self._selected_block or 0:08x} "
               f"AudioCh={selected} AudioTS={bitmap.hex()}")
 
     def _clock_dspdaa_sport1(self, receive_word: int = 0) -> int:
@@ -313,7 +315,7 @@ class AnalogMipsModem:
                       (self._dspdaa_cpu if self._native_dspdaa_running
                        else self.card.cpu))
             if self._trace_native_hw_writes:
-                print('[analog-mips] host write '
+                modem_log.debug('[analog-mips] host write '
                       f'base=0x{key[0]:08x} reg=0x{key[1]:04x} '
                       f'value=0x{value:04x} media=0x{self.card.resident:04x}')
             ADSP.adsp2181_host_write(target, key[1], value)
@@ -348,14 +350,14 @@ class AnalogMipsModem:
         if self._trace_native_media_shadow:
             shadow_pm = self.mips.dsp_pm.get(selected)
             shadow_dm = self.mips.dsp_dm.get(selected)
-            print('[analog-mips] adopted media shadow: '
+            modem_log.debug('[analog-mips] adopted media shadow: '
                   f'block=0x{selected:08x} '
                   f'PM={sum(bool(v) for v in shadow_pm or ())} '
                   f'DM={sum(bool(v) for v in shadow_dm or ())} '
                   f'requests=' + ','.join(
                       f'0x{download:04x}'
                       for _request, download in self.mips.native_download_requests))
-        print(f"[analog-mips] native dsp_assign selected 0x{selected:08x} "
+        modem_log.debug(f"[analog-mips] native dsp_assign selected 0x{selected:08x} "
               f"(discovery heuristic was 0x{old or 0:08x})")
 
     def _replace_media_core_from_native(self) -> None:
@@ -410,7 +412,7 @@ class AnalogMipsModem:
             for register, value in events:
                 ADSP.adsp2181_host_write(cpu, register, value)
                 ADSP.adsp2181_run(cpu, 2_000)
-            print('[analog-mips] replayed native selected-block write log '
+            modem_log.debug('[analog-mips] replayed native selected-block write log '
                   f'({len(events)} writes)')
         for download in (0x026D, 0x025C, 0x0262):
             self._load_native_download(download, pm=pm, dm=dm)
@@ -430,10 +432,10 @@ class AnalogMipsModem:
                 if block == self._selected_block)
             for register, value in registers:
                 ADSP.adsp2181_host_write(cpu, register, value)
-            print('[analog-mips] replayed native selected-block register '
+            modem_log.debug('[analog-mips] replayed native selected-block register '
                   f'snapshot ({len(registers)} registers)')
         self._native_media_replaced = True
-        print('[analog-mips] replaced SPORT1 media with native ANA image '
+        modem_log.debug('[analog-mips] replaced SPORT1 media with native ANA image '
               f'after dsp_assign block=0x{self._selected_block:08x}')
 
     def _step_mips(self, instructions: int) -> None:
@@ -453,7 +455,7 @@ class AnalogMipsModem:
                     if shadow is not None else None)
         if after_tx is not None and after_tx != before_tx:
             if self._trace_native_v90a_tx:
-                print('[analog-mips] native DSP TX mailbox changed: '
+                modem_log.debug('[analog-mips] native DSP TX mailbox changed: '
                       f'DM(3f05)=0x{after_tx[0]:04x} '
                       f'DM(3fad)=0x{after_tx[1]:04x}')
             if (self._bridge_native_v90a_tx and self.card.resident == 0x026B
@@ -485,12 +487,12 @@ class AnalogMipsModem:
                 description = self._load_native_download(
                     download, pm=shadow_pm, dm=shadow_dm)
                 if self._trace_native_media_shadow:
-                    print('[analog-mips] staged native media download '
+                    modem_log.debug('[analog-mips] staged native media download '
                           f'0x{download:04x}: {description}; '
                           f'PM={sum(bool(v) for v in shadow_pm)} '
                           f'DM={sum(bool(v) for v in shadow_dm)}')
                 self._replace_media_core_from_native()
-                print(f"[analog-mips] native download callback 0x{download:04x} "
+                modem_log.debug(f"[analog-mips] native download callback 0x{download:04x} "
                       f"request=0x{request:08x} result={result}")
         # Discovery writes were baselined at attachment. Writes after that are
         # replies to the live task's mailbox and must be visible before its
@@ -514,13 +516,13 @@ class AnalogMipsModem:
     def begin_dial(self, number: str) -> bool:
         """Send the tty ATD number through build-109's native IDI queue."""
         if not self.mips.line_in_service(channel=1):
-            print("[analog-mips] native CALL_REQ rejected: no exchange battery")
+            modem_log.debug("[analog-mips] native CALL_REQ rejected: no exchange battery")
             return False
         accepted = self.mips.request_outgoing_call(number)
         if accepted:
-            print(f"[analog-mips] native CALL_REQ queued for {number}")
+            modem_log.debug(f"[analog-mips] native CALL_REQ queued for {number}")
         else:
-            print("[analog-mips] native signalling ASSIGN failed")
+            modem_log.debug("[analog-mips] native signalling ASSIGN failed")
         return accepted
 
     def set_line_hook(self, off_hook: bool) -> None:

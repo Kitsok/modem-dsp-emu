@@ -13,6 +13,8 @@ Then direct an INVITE containing PCMA (static payload type 8) to this host.
 """
 from __future__ import annotations
 
+import modem_log
+
 import argparse
 import collections
 import hashlib
@@ -1070,7 +1072,7 @@ class RtpCapture:
         if os.environ.get('EICON_DUMP_FED_RX', '0') not in ('0', ''):
             self.fed = prefix.with_suffix('.fed' + law_suffix).open('wb')
             self.fed_word = prefix.with_suffix('.fed.word.bin').open('wb')
-            print(f'[capture] dumping the samples handed to frame_fast to '
+            modem_log.debug(f'[capture] dumping the samples handed to frame_fast to '
                   f'{prefix.name}.fed{law_suffix} and {prefix.name}.fed.word.bin')
         self.diag = prefix.with_suffix('.adsp.csv').open('w', buffering=1)
         self.diag_dm = prefix.with_suffix('.adsp-dm.bin').open('wb', buffering=0)
@@ -1337,7 +1339,7 @@ class RtpCapture:
         self.diag.close()
         self.diag_dm.close()
         self.diag_scc.close()
-        print(f'[capture] wrote {self.prefix}.rtp.pcap/.adsp.csv/.adsp-dm.bin/'
+        modem_log.debug(f'[capture] wrote {self.prefix}.rtp.pcap/.adsp.csv/.adsp-dm.bin/'
               f'.adsp-scc.bin, TX '
               f'{self.law_suffix}/.wav and RX .rx{self.law_suffix}/.rx.wav')
 
@@ -1404,7 +1406,7 @@ class PppFileUploader:
         now = time.monotonic()
         if not self.started:
             self.started = True
-            print(f'[file] upload started path={self.path} bytes={self.size} '
+            modem_log.debug(f'[file] upload started path={self.path} bytes={self.size} '
                   f'blocks={self.total} window={self.window}', flush=True)
         for packet in peer.rx_ip:
             parsed = self.parse_ipv4(packet)
@@ -1427,7 +1429,7 @@ class PppFileUploader:
                 if (len(self.acked) == 1
                         or len(self.acked) == self.total
                         or len(self.acked) % 64 == 0):
-                    print(f'[file] ack sequence={sequence} '
+                    modem_log.debug(f'[file] ack sequence={sequence} '
                           f'acked={len(self.acked)}/{self.total}', flush=True)
         peer.rx_ip[:] = [packet for packet in peer.rx_ip
                           if not (self.parse_ipv4(packet) is not None
@@ -1450,7 +1452,7 @@ class PppFileUploader:
             self.file.seek(0)
             for chunk in iter(lambda: self.file.read(1 << 20), b''):
                 self.hash.update(chunk)
-            print(f'[file] upload complete bytes={self.size} '
+            modem_log.debug(f'[file] upload complete bytes={self.size} '
                   f'sha256={self.hash.hexdigest()}', flush=True)
             self.file.close()
 
@@ -1552,7 +1554,7 @@ class PppTcpUploader:
             self.started = True
             self._send(peer, self.SYN, seq=self.iss, ack=0)
             self.seq = (self.iss + 1) & 0xFFFFFFFF
-            print(f'[tcp-file] connection started path={self.path} '
+            modem_log.debug(f'[tcp-file] connection started path={self.path} '
                   f'bytes={self.size} window={self.window} '
                   f'host={".".join(map(str, self.host))}:{self.port}',
                   flush=True)
@@ -1584,7 +1586,7 @@ class PppTcpUploader:
                 self.ack = (tcp['seq'] + 1) & 0xFFFFFFFF
                 self._send(peer, self.ACK)
                 self.finished = True
-                print(f'[tcp-file] upload complete bytes={self.size}', flush=True)
+                modem_log.debug(f'[tcp-file] upload complete bytes={self.size}', flush=True)
             if tcp['payload']:
                 self.ack = (tcp['seq'] + len(tcp['payload'])) & 0xFFFFFFFF
                 self._send(peer, self.ACK)
@@ -1618,7 +1620,7 @@ class PppTcpUploader:
 
     def close(self) -> None:
         if self.started and not self.finished:
-            print(f'[tcp-file] flow closed before completion '
+            modem_log.debug(f'[tcp-file] flow closed before completion '
                   f'sent={self.total_sent} acked={self.total_acked} '
                   f'offset={self.next_offset}/{self.size}', flush=True)
         if not self.file.closed:
@@ -1794,7 +1796,7 @@ class EiconSipEndpoint:
             from v42_pty import PtyLink
             if at_terminal:
                 from eicon_at import AtParser
-                self.at = AtParser()
+                self.at = AtParser(event_logger=modem_log.at_event)
                 # S0=1: auto-answer after one ring cadence. The endpoint no
                 # longer answers the INVITE synchronously -- it rings first --
                 # so S0=1 means "ring once, then answer" rather than "answer
@@ -1859,7 +1861,7 @@ class EiconSipEndpoint:
         # below, so it survives steady state instead of collapsing to zero.
         self.rx_lag_samples = max(0, RX_LAG_MS * 8)
         if self.rx_lag_samples:
-            print(f'[media] holding {RX_LAG_MS} ms of one-way receive delay '
+            modem_log.debug(f'[media] holding {RX_LAG_MS} ms of one-way receive delay '
                   f'({self.rx_lag_samples} samples)')
         # Above this the queue is backlog, not jitter margin, and is drained
         # ahead of the wall clock. Kept clear of the delay line, or the drain
@@ -1885,11 +1887,11 @@ class EiconSipEndpoint:
         self.tx_target_quanta = max(
             0, (tx_buffer_ms + rtp_packet_ms - 1) // rtp_packet_ms)
         if self.tx_target_quanta:
-            print(f'[media] transmit buffer: {self.tx_target_quanta} packets '
+            modem_log.debug(f'[media] transmit buffer: {self.tx_target_quanta} packets '
                   f'({self.tx_target_quanta * self.rtp_packet_ms} ms), wire clock decoupled '
                   f'from the data pump')
         else:
-            print('[media] transmit buffer disabled; complete packets go out as '
+            modem_log.debug('[media] transmit buffer disabled; complete packets go out as '
                   'it is produced')
         self.data_tx_buffer_quanta = max(
             self.tx_target_quanta,
@@ -1950,11 +1952,11 @@ class EiconSipEndpoint:
         self.max_starvation_hold_seconds = max(
             0.0, max_starvation_hold_ms / 1000)
         if self.repeat_tx_underrun:
-            print('[media] underrun continuity enabled: repeat last quantum')
+            modem_log.debug('[media] underrun continuity enabled: repeat last quantum')
         if self.repeat_rx_underrun:
-            print('[media] receive underrun continuity enabled: repeat last RTP quantum')
+            modem_log.debug('[media] receive underrun continuity enabled: repeat last RTP quantum')
         if self.hold_rx_starvation:
-            print('[media] starvation hold enabled: pause modem clock until RTP resumes')
+            modem_log.debug('[media] starvation hold enabled: pause modem clock until RTP resumes')
         self.realtime = realtime
         self.tick_budget = tick_budget_ms / 1000
         self.mips_interval = mips_interval
@@ -2000,7 +2002,7 @@ class EiconSipEndpoint:
             # server startup. The SIP INVITE is the network SETUP event; run
             # the synchronous firmware entry/assignment then, and send 200 OK
             # only after the modem task and bearer have finished attaching.
-            print('[native-mips] card firmware will start on incoming INVITE')
+            modem_log.debug('[native-mips] card firmware will start on incoming INVITE')
         if registrar and username:
             self.send_register()
 
@@ -2094,14 +2096,14 @@ class EiconSipEndpoint:
                     self.send_register(challenge, expires=0)
                     continue
                 if status == '200':
-                    print(f'[sip] deregistered {self.username}@{self.registrar}')
+                    modem_log.info(f'[sip] deregistered {self.username}@{self.registrar}')
                     return
                 break
-            print(f'[sip] deregister not confirmed for '
+            modem_log.info(f'[sip] deregister not confirmed for '
                   f'{self.username}@{self.registrar}; the binding will lapse '
                   'on its own')
         except OSError as exc:
-            print(f'[sip] deregister failed: {exc}')
+            modem_log.info(f'[sip] deregister failed: {exc}')
 
     @staticmethod
     def digest_challenge(value: str) -> dict[str, str]:
@@ -2152,7 +2154,7 @@ class EiconSipEndpoint:
                     if expires:
                         self.register_refresh_at = (
                             time.monotonic() + max(30.0, expires * 0.75))
-                        print(f'[sip] registered {self.username}@{self.registrar}; '
+                        modem_log.info(f'[sip] registered {self.username}@{self.registrar}; '
                               f'refresh in {max(30, int(expires * 0.75))}s')
                     else:
                         self.register_refresh_at = None
@@ -2166,7 +2168,7 @@ class EiconSipEndpoint:
             return
         method = parts[0].upper()
         if self.verbose:
-            print(f'[sip] {method} from {peer[0]}:{peer[1]}')
+            modem_log.info(f'[sip] {method} from {peer[0]}:{peer[1]}')
 
         if method == 'OPTIONS':
             self.response(200, 'OK', headers, peer, extra=['Allow: INVITE, ACK, BYE, OPTIONS'])
@@ -2177,7 +2179,7 @@ class EiconSipEndpoint:
                     r'(?im)^a=rtpmap:(\d+)\s+([^\s/]+)(?:/\d+)?', body):
                 offered.append(f'{match.group(1)}={match.group(2)}')
             media_line = re.search(r'(?im)^m=audio[^\r\n]*', body)
-            print('[sip] INVITE media offer: '
+            modem_log.info('[sip] INVITE media offer: '
                   + (media_line.group(0) if media_line else 'no m=audio')
                   + ('; ' + ', '.join(offered) if offered else ''))
             media = parse_g711_sdp(body, peer, self.payload_type)
@@ -2226,7 +2228,7 @@ class EiconSipEndpoint:
                 'headers': headers, 'peer': peer, 'media': media,
                 'call_id': call_id, 'answer_at': answer_at,
             }
-            print(f'[call] ringing from {caller.strip()} ({peer[0]}:{peer[1]})'
+            modem_log.info(f'[call] ringing from {caller.strip()} ({peer[0]}:{peer[1]})'
                   f"; {'auto-answer in %.1fs' % self.ring_seconds if answer_at else 'waiting for ATA'}")
             return
         if method in ('BYE', 'CANCEL'):
@@ -2235,7 +2237,7 @@ class EiconSipEndpoint:
             # CANCEL of a ringing call before it was answered.
             if self.pending_invite is not None:
                 self.pending_invite = None
-                print(f'[call] cancelled while ringing')
+                modem_log.info(f'[call] cancelled while ringing')
                 if self.at is not None and self.pty is not None:
                     self.pty.write_terminal(self.at.no_carrier())
                 return
@@ -2252,7 +2254,7 @@ class EiconSipEndpoint:
                         # every datagram whether or not the in_sync gate here
                         # let the LAPM stream through.
                         tx_stats += (f', {payload} payload / {fill} mark fill')
-                print(f'[call] ended after {self.call.packets} RTP packets, '
+                modem_log.info(f'[call] ended by remote {method}: {self.call.packets} RTP packets, '
                       f'{self.call.samples} samples{tx_stats}')
                 # This is the teardown a BYE actually takes -- run42 ended here
                 # and never reached `end_call()`, so a census reported only
@@ -2261,21 +2263,21 @@ class EiconSipEndpoint:
                 if census is not None:
                     line = census()
                     if line:
-                        print(f'[adsp] {line}')
+                        modem_log.debug(f'[adsp] {line}')
                 self._dump_pc_histogram(self.call.card)
                 downstream = getattr(
                     self.call.card, 'negotiated_downstream_bps', None)
                 upstream = getattr(
                     self.call.card, 'negotiated_upstream_bps', None)
                 if downstream is not None or upstream is not None:
-                    print(f'[v90] final negotiated rates: downstream '
+                    modem_log.debug(f'[v90] final negotiated rates: downstream '
                           f'{downstream or "?"} bit/s, upstream '
                           f'{upstream or "?"} bit/s')
                 lapm = getattr(self.call.card, 'lapm', None)
                 if lapm is not None:
                     state = ('connected' if lapm.connected else
                              f'down ({lapm.failed})' if lapm.failed else 'down')
-                    print(f'[v42] totals: state={state}, '
+                    modem_log.debug(f'[v42] totals: state={state}, '
                           f'links={lapm.generation}, '
                           f're-establishments={lapm.stats.reestablish}, '
                           f'line disturbances={lapm.stats.suspensions}, '
@@ -2300,7 +2302,7 @@ class EiconSipEndpoint:
                     # Acceptance is the return-code count, not the number of
                     # requests submitted: the two were conflated before the
                     # bridge tracked outstanding requests at all.
-                    print(f'[nl] N_DATA totals: '
+                    modem_log.debug(f'[nl] N_DATA totals: '
                           f'{card._nl_accepted}/{card._nl_posted} '
                           f'accepted/submitted, rejected={card._nl_rejected}, '
                           f'tx={card._nl_tx_octets} octets, '
@@ -2309,7 +2311,7 @@ class EiconSipEndpoint:
                           f'queued={len(card.nl_data_queue)}, '
                           f'busy={card._nl_busy}, fc={card._nl_fc}, '
                           f'bearer={"open" if card.nl_connected else "closed"}')
-                print(f'[media] call totals: substituted '
+                modem_log.debug(f'[media] call totals: substituted '
                       f'{self.call.rx_substituted} RX samples, dropped '
                       f'{self.call.rx_dropped}, clock holds {self.call.rx_holds} '
                       f'({self.call.hold_time * 1000:.0f} ms spent waiting), '
@@ -2387,7 +2389,7 @@ class EiconSipEndpoint:
                 payload_type = packet[1] & 0x7F
                 if payload_type not in self.other_rtp_payload_types:
                     self.other_rtp_payload_types.add(payload_type)
-                    print(f'[rtp] ignoring first payload type {payload_type} '
+                    modem_log.debug(f'[rtp] ignoring first payload type {payload_type} '
                           f'from {peer[0]}:{peer[1]} (audio is '
                           f'PT {self.payload_type})')
             return
@@ -2421,7 +2423,7 @@ class EiconSipEndpoint:
         if self.trace_stream is not None:
             self.trace_stream.write(line + '\n')
         else:
-            print(line)
+            modem_log.debug(line)
 
     def _dump_pm_ready(self, call: Call, fields: list = None) -> bool:
         """Has the optional `EICON_DUMP_PM`/`EICON_DUMP_DM` delay elapsed?
@@ -2682,7 +2684,7 @@ class EiconSipEndpoint:
                        f'Signalquality 0x{dm[0x3F86]:04x}, '
                        f'upstream quality 0x{dm[0x0FCF]:04x} '
                        f'ceiling {dm[0x20BA] * 2400} bit/s')
-        print(f'[rx] {second} s: level {20 * math.log10(rms / DBM0_RMS):.1f} '
+        modem_log.debug(f'[rx] {second} s: level {20 * math.log10(rms / DBM0_RMS):.1f} '
               f'dBm0, peak {20 * math.log10(peak / 32124):.1f} dBFS{verdict}')
 
     def transmit_health(self, call: Call) -> str:
@@ -2761,7 +2763,7 @@ class EiconSipEndpoint:
             return
         if call.v34_mailbox is not None:
             mailbox = call.v34_mailbox
-            print(f'[v34-mailbox] {second}s: TX accepted/requested '
+            modem_log.debug(f'[v34-mailbox] {second}s: TX accepted/requested '
                   f'{mailbox.tx_accepted}/{mailbox.tx_requests}, '
                   f'RX {mailbox.rx_datagrams}, active={mailbox.active}; '
                   f'{mailbox.lapm.detection_summary()}')
@@ -2772,7 +2774,7 @@ class EiconSipEndpoint:
         counters = (call.rx_substituted, call.rx_dropped, call.rx_holds,
                     call.over_budget_ticks, call.catchup_deferrals)
         call.reported_counters = counters
-        print(f'[media] {second} s: rx queue {len(call.rx)}, substituted '
+        modem_log.debug(f'[media] {second} s: rx queue {len(call.rx)}, substituted '
               f'{call.rx_substituted}, dropped {call.rx_dropped}, clock holds '
               f'{call.rx_holds} ({call.hold_time * 1000:.0f} ms waiting), '
               f'ticks over {self.tick_budget * 1000:.0f} ms '
@@ -2789,7 +2791,7 @@ class EiconSipEndpoint:
         # under exactly that. Say so, once, rather than let it be silent.
         if second >= 5 and call.rx_holds < second * 10 and not call.host_bound_warned:
             call.host_bound_warned = True
-            print(f'[media] WARNING: host-bound -- only {call.rx_holds} clock '
+            modem_log.warning(f'[media] WARNING: host-bound -- only {call.rx_holds} clock '
                   f'holds in {second} s, so the emulated timeline is being set '
                   f'by how fast this machine runs, not by the 8 kHz clock. '
                   f'Cycle counts and frame counts from this run are not '
@@ -2848,9 +2850,9 @@ class EiconSipEndpoint:
         if reason is None or self.link_failure_reported:
             return
         self.link_failure_reported = True
-        print(f'[v42] the data link is down and did not come back: {reason}')
+        modem_log.debug(f'[v42] the data link is down and did not come back: {reason}')
         if os.environ.get('EICON_V42_HANGUP', '1') == '0':
-            print('[v42] EICON_V42_HANGUP=0: leaving the call up')
+            modem_log.debug('[v42] EICON_V42_HANGUP=0: leaving the call up')
             return
         self.hangup_call(f'V.42 link failure ({reason})')
 
@@ -2882,7 +2884,7 @@ class EiconSipEndpoint:
                 self.ppp_address = self.ppp_pool.allocate()
                 config = dataclasses.replace(config,
                                              peer_address=self.ppp_address)
-                print(f'[ppp] assigning {self.ppp_address} to this caller '
+                modem_log.debug(f'[ppp] assigning {self.ppp_address} to this caller '
                       f'({len(self.ppp_pool)} of the pool in use)')
             peer = PppPeer(config)
             if self.ppp_network is not None:
@@ -2910,7 +2912,7 @@ class EiconSipEndpoint:
             if self.repeat_after_data:
                 self.repeat_tx_underrun = True
                 self.repeat_rx_underrun = True
-            print(f'[media] PPP up; transmit buffer promoted to '
+            modem_log.debug(f'[media] PPP up; transmit buffer promoted to '
                   f'{self.tx_target_quanta * self.rtp_packet_ms} ms', flush=True)
         self.ppp.pump(lapm, time.monotonic())
         # Process application replies after incoming IP has been delivered,
@@ -2950,7 +2952,7 @@ class EiconSipEndpoint:
             if sent is None:
                 continue
             self.ppp_ping_replies += 1
-            print(f'[ping] reply seq={sequence} in '
+            modem_log.debug(f'[ping] reply seq={sequence} in '
                   f'{(now - sent) * 1000:.0f} ms')
         del peer.rx_ip[:]
         if self.ppp_ping_seq >= self.ppp_ping_count or now < self.ppp_ping_due:
@@ -2965,7 +2967,7 @@ class EiconSipEndpoint:
         self.ppp_ping_sent[self.ppp_ping_seq] = now
         peer.send_ip(icmp_echo_request(peer.ipcp.local_address, destination,
                                        sequence=self.ppp_ping_seq))
-        print(f'[ping] {destination} seq={self.ppp_ping_seq} sent')
+        modem_log.debug(f'[ping] {destination} seq={self.ppp_ping_seq} sent')
 
     def close_ppp(self) -> None:
         """Tear the PPP peer down with the call that carried it."""
@@ -2986,7 +2988,7 @@ class EiconSipEndpoint:
             if dropper is not None:
                 dropped = dropper(self.ppp_address)
                 if dropped:
-                    print(f'[ppp] closed {dropped} flow(s) for '
+                    modem_log.debug(f'[ppp] closed {dropped} flow(s) for '
                           f'{self.ppp_address}')
             if self.ppp_pool is not None:
                 self.ppp_pool.release(self.ppp_address)
@@ -3073,7 +3075,7 @@ class EiconSipEndpoint:
                     f'{len(encoded)}')
             if (TX_FILE_STATE_RAW and any(code is not None for code in raw)
                     and not getattr(call, '_raw_tx_logged', False)):
-                print('[media] raw TX_FILE_STATE replay active '
+                modem_log.debug('[media] raw TX_FILE_STATE replay active '
                       f'wire=0x{raw[0] if raw[0] is not None else encoded[0]:02x}')
                 call._raw_tx_logged = True
             encoded = bytes(
@@ -3165,7 +3167,7 @@ class EiconSipEndpoint:
             except Exception as exc:              # pragma: no cover
                 # A dead wire clock is silent, and silence here looks exactly
                 # like a modem fault at the far end. Say so and stop.
-                print(f'[media] the wire clock failed: {exc!r}')
+                modem_log.error(f'[media] the wire clock failed: {exc!r}')
                 return
 
     def service_transmit(self, call: Call, now: float) -> None:
@@ -3194,7 +3196,7 @@ class EiconSipEndpoint:
                 and call.samples >= 30 * 8000):
             old_target = self.tx_target_quanta
             self.tx_target_quanta = self.recovery_buffer_quanta
-            print('[media] underrun recovery: expanding transmit '
+            modem_log.debug('[media] underrun recovery: expanding transmit '
                   f'buffer {old_target * self.rtp_packet_ms} ms -> '
                   f'{self.tx_target_quanta * self.rtp_packet_ms} ms', flush=True)
         if (getattr(self, 'repeat_tx_underrun', False)
@@ -3203,7 +3205,7 @@ class EiconSipEndpoint:
                 and call.samples >= 300 * 8000):
             old_target = self.tx_target_quanta
             self.tx_target_quanta = self.deep_recovery_buffer_quanta
-            print('[media] sustained underrun recovery: expanding transmit '
+            modem_log.debug('[media] sustained underrun recovery: expanding transmit '
                   f'buffer {old_target * self.rtp_packet_ms} ms -> '
                   f'{self.tx_target_quanta * self.rtp_packet_ms} ms', flush=True)
         if not call.tx_queue:
@@ -3241,7 +3243,7 @@ class EiconSipEndpoint:
             if len(call.tx_queue) < self.tx_target_quanta:
                 return                      # still filling the cushion
             call.next_send = now
-            print(f'[media] transmit buffer primed: '
+            modem_log.debug(f'[media] transmit buffer primed: '
                   f'{len(call.tx_queue) * self.rtp_packet_ms} ms of '
                   f'produced audio, wire clock started')
         while call.tx_queue and now >= call.next_send:
@@ -3315,7 +3317,7 @@ class EiconSipEndpoint:
                 # up. Sequence and timestamp advance because those are wire
                 # state, not modem state.
                 if call.gap_samples == 0:
-                    print(f'[media] setup gap: holding this end off the line '
+                    modem_log.debug(f'[media] setup gap: holding this end off the line '
                           f'for {self.setup_gap_samples / 8:.0f} ms of bearer '
                           f'time (idle PCM only)')
                 call.rx.clear()
@@ -3323,7 +3325,7 @@ class EiconSipEndpoint:
                 call.gap_samples += SAMPLES_PER_PACKET
                 call.next_tick += SAMPLES_PER_PACKET / 8000
                 if call.gap_samples >= self.setup_gap_samples:
-                    print('[media] setup gap over; this end is on the line')
+                    modem_log.debug('[media] setup gap over; this end is on the line')
                 served += 1
                 continue
             if not self.rx_ready(call, now):
@@ -3509,7 +3511,7 @@ class EiconSipEndpoint:
                         call.analog_line.set_hook(True)
                         if hasattr(call.card, 'set_line_hook'):
                             call.card.set_line_hook(True)
-                        print(f'[analog-line] off-hook at sample {call.samples}; '
+                        modem_log.debug(f'[analog-line] off-hook at sample {call.samples}; '
                               'codec attached to line')
                     sample = call.analog_line.receive(sample)
                 if (V90A_RX_GAIN is not None
@@ -3605,7 +3607,7 @@ class EiconSipEndpoint:
                     digits = call.analog_line.detected_digits
                     if len(digits) > call.analog_digits_reported:
                         for digit in digits[call.analog_digits_reported:]:
-                            print(f'[analog-line] outgoing DTMF {digit}')
+                            modem_log.debug(f'[analog-line] outgoing DTMF {digit}')
                         call.analog_digits_reported = len(digits)
                 if (TX_GAIN_AFTER_STATE is not None
                         and call.card.dm[0x3FC2] >= TX_GAIN_AFTER_STATE[0]):
@@ -3640,7 +3642,7 @@ class EiconSipEndpoint:
                                     and call.raw_tx_codes is not None):
                                 call.raw_tx_codes.append(_raw_code)
                                 if not getattr(call, '_raw_state_logged', False):
-                                    print('[media] raw TX_FILE_STATE first '
+                                    modem_log.debug('[media] raw TX_FILE_STATE first '
                                           f'state=0x{_state:04x} '
                                           f'file_index={_fi} '
                                           f'code=0x{_raw_code:02x}')
@@ -3704,12 +3706,12 @@ class EiconSipEndpoint:
                     inner = getattr(call.card, 'card', call.card)
                     pm = getattr(inner, 'pm', None)
                     if pm is None:
-                        print('[dump-pm] this backend exposes no pm[]')
+                        modem_log.debug('[dump-pm] this backend exposes no pm[]')
                     else:
                         with open(path, 'w') as handle:
                             for address in range(lo, hi + 1):
                                 handle.write(f'{address:04x} {pm[address]:06x}\n')
-                        print(f'[dump-pm] wrote PM 0x{lo:04x}-0x{hi:04x} to '
+                        modem_log.debug(f'[dump-pm] wrote PM 0x{lo:04x}-0x{hi:04x} to '
                               f'{path} at sample {call.samples} '
                               f'({call.samples / 8000:.6f}s), overlay '
                               f'0x{call.card.resident:04x}')
@@ -3723,7 +3725,7 @@ class EiconSipEndpoint:
                     with open(path, 'w') as handle:
                         for address in range(lo, hi + 1):
                             handle.write(f'{address:04x} {dm[address]:04x}\n')
-                    print(f'[dump-dm] wrote DM 0x{lo:04x}-0x{hi:04x} to '
+                    modem_log.debug(f'[dump-dm] wrote DM 0x{lo:04x}-0x{hi:04x} to '
                           f'{path} at sample {call.samples} '
                           f'({call.samples / 8000:.6f}s), overlay '
                           f'0x{call.card.resident:04x}')
@@ -3847,13 +3849,13 @@ class EiconSipEndpoint:
                 overlay = call.card.overlays.get(wanted)
                 overlay_name = overlay[1].split(' Version')[0] if overlay else '?'
                 forced = ' [FORCED post-V.8 fallback]' if sample in call.card.forced_info_samples else ''
-                print(f'[adsp] sample {sample} ({sample / 8000:.3f}s): '
+                modem_log.debug(f'[adsp] sample {sample} ({sample / 8000:.3f}s): '
                       f'overlay request page {page} {PAGE_NAMES.get(page, "?")} '
                       f'-> 0x{wanted:04x} {overlay_name} served{forced}')
             call.logged_overlay_switches = len(call.card.switches)
             injections = getattr(call.card, 'l1l2_forced_samples', [])
             for sample in injections[call.logged_l1l2_injections:]:
-                print(f'[adsp] sample {sample} ({sample / 8000:.3f}s): '
+                modem_log.debug(f'[adsp] sample {sample} ({sample / 8000:.3f}s): '
                       'confirmed 2400-Hz Tone A; injected INFO post-L2 event 1')
             call.logged_l1l2_injections = len(injections)
             trn_progress = call.card.dm[0x3FC2]
@@ -3863,14 +3865,14 @@ class EiconSipEndpoint:
             if scratch != call.status_block_scratch:
                 call.status_block_scratch = scratch
                 if scratch:
-                    print(f'[adsp] sample {call.samples} '
+                    modem_log.debug(f'[adsp] sample {call.samples} '
                           f'({call.samples / 8000:.3f}s): the status block '
                           f'DM(0x3fb0..0x3fca) has been taken over as scratch '
                           f'by the bit-reversal copy at PM 0x3b25 '
                           f'(TrnProgress reads 0x{trn_progress:04x}); page, '
                           f'state and Rstatus reporting suspended -- Session 136')
                 else:
-                    print(f'[adsp] sample {call.samples} '
+                    modem_log.debug(f'[adsp] sample {call.samples} '
                           f'({call.samples / 8000:.3f}s): status block is the '
                           f'state machine\'s again; reporting resumed')
             # Nothing is recorded while the block is scratch, so when the state
@@ -3895,7 +3897,7 @@ class EiconSipEndpoint:
                         and (phase3_retry or phase3_resync)
                         and hasattr(call.reactive_engine, 'reset')):
                     call.reactive_engine.reset()
-                    print('[reactive-engine] reset for V.90 phase-3 retry',
+                    modem_log.debug('[reactive-engine] reset for V.90 phase-3 retry',
                           flush=True)
                 info_rx = ''
                 # Rstatus_ch bits D and B are the ADDSP guide's SPEEDTX and
@@ -3911,7 +3913,7 @@ class EiconSipEndpoint:
                     info_rx = (f'; INFO_RX event=0x{call.card.dm[0x0685]:04x} '
                                f'complete=0x{call.card.dm[0x0686]:04x} '
                                f'parser=0x{call.card.dm[0x16BD]:04x}')
-                print(f'[adsp] sample {call.samples} ({call.samples / 8000:.3f}s): '
+                modem_log.debug(f'[adsp] sample {call.samples} ({call.samples / 8000:.3f}s): '
                       f'TrnProgress 0x{call.trn_progress & 0xffff:04x} -> '
                       f'0x{trn_progress:04x}; Rstatus_ch=0x{rstatus_ch:04x}'
                       f'[{flag_names(rstatus_ch, RSTATUS_CH_BITS)}] '
@@ -3923,6 +3925,15 @@ class EiconSipEndpoint:
                             f'{trn_progress & 0xffff:04x}\n')
                     except OSError:
                         pass
+                if call.trn_progress == 0xD0 and trn_progress != 0xD0:
+                    modem_log.info('[call] retrain or rate renegotiation started')
+                if trn_progress == 0xD0:
+                    lapm = getattr(call.card, 'lapm', None)
+                    modem_log.info(
+                        f'[call] modem data state: '
+                        f'TX={getattr(call.card, "negotiated_downstream_bps", 0)} '
+                        f'RX={getattr(call.card, "negotiated_upstream_bps", 0)} bit/s '
+                        f'compression={modem_log.compression_name(lapm)}')
                 call.trn_progress = trn_progress
                 call.rstatus_ch = rstatus_ch
                 call.rstatus = rstatus
@@ -3945,7 +3956,7 @@ class EiconSipEndpoint:
                     # classifier is already known to be delay-sensitive (§3).
                     # The echo and probe words are here because the DIL region
                     # is where they would be used and where they are zero.
-                    print(f'[dil] sample {call.samples} '
+                    modem_log.debug(f'[dil] sample {call.samples} '
                           f'({call.samples / 8000:.3f}s): '
                           f'flag DM(0x3f8b)=0x{dm[0x3F8B]:04x} '
                           f'measure DM(0x3f8e)=0x{dm[0x3F8E]:04x} '
@@ -4015,13 +4026,13 @@ class EiconSipEndpoint:
                 overlay = call.card.overlays.get(call.card.resident)
                 overlay_name = overlay[1].split(' Version')[0] if overlay else '?'
                 if bootpage in PAGE_NAMES:
-                    print(f'[adsp] sample {call.samples} ({call.samples / 8000:.3f}s): '
+                    modem_log.debug(f'[adsp] sample {call.samples} ({call.samples / 8000:.3f}s): '
                           f'bootpage {old} -> {bootpage} '
                           f'{PAGE_NAMES[bootpage]}, overlay=0x{call.card.resident:04x} '
                           f'{overlay_name}')
                 else:
                     signed = bootpage - 0x10000 if bootpage & 0x8000 else bootpage
-                    print(f'[adsp] sample {call.samples} ({call.samples / 8000:.3f}s): '
+                    modem_log.debug(f'[adsp] sample {call.samples} ({call.samples / 8000:.3f}s): '
                           f'shared boot word {old} -> 0x{bootpage:04x} ({signed}); '
                           'no valid overlay page')
                 call.bootpage = bootpage
@@ -4038,7 +4049,7 @@ class EiconSipEndpoint:
                 _ADSP.adsp2181_coverage_clear(
                     getattr(call.card, 'card', call.card).cpu)
                 self.pc_histogram_started = True
-                print(f'[pc-histogram] cleared at sample {call.samples} '
+                modem_log.debug(f'[pc-histogram] cleared at sample {call.samples} '
                       f'({call.samples / 8000:.3f}s), overlay '
                       f'0x{self.pc_histogram_from:04x} resident')
             if call.reactive_engine is not None:
@@ -4065,7 +4076,7 @@ class EiconSipEndpoint:
                         and not getattr(call, 'reactive_engine_armed', False)
                         and hasattr(call.reactive_engine, 'reset')):
                     call.reactive_engine.reset()
-                    print('[reactive-engine] synchronized Phase-3 reset',
+                    modem_log.debug('[reactive-engine] synchronized Phase-3 reset',
                           flush=True)
                 # A gated bridge is intentionally dormant before the local
                 # V.90 overlay/state.  Do not run the sibling engine merely
@@ -4091,24 +4102,24 @@ class EiconSipEndpoint:
                             sample * REACTIVE_ENGINE_TX_GAIN))))
                                   for sample in linear]
                         if not getattr(call, 'reactive_gain_logged', False):
-                            print(f'[reactive-engine] TX gain '
+                            modem_log.debug(f'[reactive-engine] TX gain '
                                   f'{REACTIVE_ENGINE_TX_GAIN:g}', flush=True)
                             call.reactive_gain_logged = True
                 elif getattr(call, 'reactive_engine_armed', False):
                     call.reactive_engine_armed = False
                     if REACTIVE_ENGINE_UNTIL_STATE is not None:
-                        print('[reactive-engine] state upper bound reached; '
+                        modem_log.debug('[reactive-engine] state upper bound reached; '
                               'continuing native Eicon RTP', flush=True)
                     else:
-                        print('[reactive-engine] inactive before V.90 overlay; '
+                        modem_log.debug('[reactive-engine] inactive before V.90 overlay; '
                               'continuing native Eicon RTP', flush=True)
                 if reactive_active and not getattr(call, 'reactive_engine_armed', False):
                     call.reactive_engine_armed = True
                     if REACTIVE_ENGINE_AFTER_STATE:
-                        print(f'[reactive-engine] active at TrnProgress '
+                        modem_log.debug(f'[reactive-engine] active at TrnProgress '
                               f'0x{call.card.dm[0x3fc2]:04x}', flush=True)
                     else:
-                        print(f'[reactive-engine] active at overlay '
+                        modem_log.debug(f'[reactive-engine] active at overlay '
                               f'0x{call.card.resident:04x}', flush=True)
             if self.pc_histogram_state is not None:
                 self._pc_state_track(call)
@@ -4170,7 +4181,7 @@ class EiconSipEndpoint:
         if self.preboot_card is not None:
             card = self.preboot_card
             self.preboot_card = None
-            print('[preboot] taking the card booted at startup')
+            modem_log.debug('[preboot] taking the card booted at startup')
             return card
         if self.native_mips:
             if self.native_card is None and dsp_drive.FIRMWARE_SET == 'analog109':
@@ -4195,7 +4206,7 @@ class EiconSipEndpoint:
                     modem_role=self.modem_role)
             card = self.native_card
             self.native_card = None
-            print('[native-mips] firmware entry and bearer attachment '
+            modem_log.debug('[native-mips] firmware entry and bearer attachment '
                   'complete')
         elif self.kernel_dispatch and dsp_drive.FIRMWARE_SET == 'analog109':
             # The Analog card has no SPORT0 at all -- kernel 0x000d leaves
@@ -4204,7 +4215,7 @@ class EiconSipEndpoint:
             from analog_kernel_dispatch import AnalogKernelModem
             card = AnalogKernelModem(modem_role=self.modem_role, law=self.law,
                                      codec_rate=self.analog_codec_rate)
-            print('[media] physical DSP line boundary: SPORT1 signed-linear '
+            modem_log.debug('[media] physical DSP line boundary: SPORT1 signed-linear '
                   'codec/DAA, dispatched by the Analog kernel')
         elif self.kernel_dispatch:
             from dial_kernel_dispatch import LiveKernelModem
@@ -4216,7 +4227,7 @@ class EiconSipEndpoint:
             boundary = ("SPORT1 signed-linear codec/DAA"
                         if card.firmware_set == "analog109"
                         else "T1/E1 8-bit companded timeslot")
-            print(f"[media] physical DSP line boundary: {boundary}")
+            modem_log.debug(f"[media] physical DSP line boundary: {boundary}")
         card.boot()
         # Where the role can be selected here it is, and where it cannot the
         # backend took it at construction. Plain Card writes GEN_SETUP1
@@ -4263,18 +4274,18 @@ class EiconSipEndpoint:
                 # product never arms (Sessions 95-96), which only the native
                 # backend pins. It still needs the stand-in.
                 if card.firmware_set == 'analog109':
-                    print('[adsp] direct originate policy: the Analog dial '
+                    modem_log.debug('[adsp] direct originate policy: the Analog dial '
                           'page requests V.8 itself; nothing to stand in for')
                 elif (delay := os.getenv('EICON_ORIGINATE_V8_AFTER')):
                     card.originate_v8_at = int(delay)
-                    print(f'[adsp] direct originate policy asks for bootpage 6 '
+                    modem_log.debug(f'[adsp] direct originate policy asks for bootpage 6 '
                           f'(V.8) at frame {delay}, after DIAL '
                           f'(EICON_ORIGINATE_V8_AFTER)')
                 else:
                     card.dm[0x3FB0] = 6
                     description = card.download_overlay(0x025F)
                     card.switches.append((0, 6, 0x025F))
-                    print(f'[adsp] direct originate policy loaded {description}')
+                    modem_log.debug(f'[adsp] direct originate policy loaded {description}')
         # LiveKernelModem wraps a Card; both expose the same emulator.
         for address, value in self.db_words.items():
             getattr(card, 'card', card).dm[address] = value
@@ -4287,7 +4298,7 @@ class EiconSipEndpoint:
         # the arming until one of the named overlays is resident.
         if WATCH_OVERLAY:
             self.pending_watch_cpu = cpu
-            print(f'[watch] holding watches until overlay '
+            modem_log.debug(f'[watch] holding watches until overlay '
                   + ','.join(f'0x{o:04x}' for o in WATCH_OVERLAY)
                   + ' is resident (EICON_WATCH_OVERLAY)'
                   + (f' and the call has run {WATCH_AFTER}s '
@@ -4324,7 +4335,7 @@ class EiconSipEndpoint:
         line = AnalogLineInterface.from_environment()
         if hasattr(card, 'attach_analog_line'):
             card.attach_analog_line(line)
-        print(f'[analog-line] {line.describe()}')
+        modem_log.debug(f'[analog-line] {line.describe()}')
         return line
 
     def attach_physical_line(self, call: Call) -> None:
@@ -4349,7 +4360,7 @@ class EiconSipEndpoint:
         if not self.preboot_enabled or self.preboot_card is not None:
             return
         start = time.monotonic()
-        print('[preboot] booting a card before the call arrives')
+        modem_log.debug('[preboot] booting a card before the call arrives')
         try:
             self.preboot_card = self.build_card()
         except Exception:
@@ -4357,10 +4368,10 @@ class EiconSipEndpoint:
             # stop listening: the answer path will try again and fail there,
             # where the existing handling already covers it.
             traceback.print_exc()
-            print('[preboot] boot failed; the next call will boot its own')
+            modem_log.warning('[preboot] boot failed; the next call will boot its own')
             self.preboot_card = None
             return
-        print(f'[preboot] card ready in {time.monotonic() - start:.1f}s')
+        modem_log.debug(f'[preboot] card ready in {time.monotonic() - start:.1f}s')
 
     def _arm_dm_assertion(self, cpu) -> None:
         """Write-watch every word of the asserted range, one write each.
@@ -4378,7 +4389,7 @@ class EiconSipEndpoint:
         for address in range(lo, hi + 1):
             _ADSP.adsp2181_watch_dm_writes(cpu, address, budget)
         self.assert_dm_armed = True
-        print(f'[assert-dm-clean] armed on DM 0x{lo:04x}..0x{hi:04x} '
+        modem_log.debug(f'[assert-dm-clean] armed on DM 0x{lo:04x}..0x{hi:04x} '
               f'({hi - lo + 1} words, {budget} write(s) logged per address); '
               f'any [WATCH] dm w line is a failure')
 
@@ -4413,7 +4424,7 @@ class EiconSipEndpoint:
                 self.pc_state_active = True
                 self.pc_state_visits += 1
                 self.pc_state_entry = call.samples
-                print(f'[pc-histogram] entered TrnProgress '
+                modem_log.debug(f'[pc-histogram] entered TrnProgress '
                       f'0x{self.pc_histogram_state:04x} at sample '
                       f'{call.samples} ({call.samples / 8000:.3f}s), '
                       f'visit {self.pc_state_visits}; counters cleared')
@@ -4431,7 +4442,7 @@ class EiconSipEndpoint:
         held = samples - self.pc_state_entry
         self.pc_state_samples += held
         self.pc_state_active = False
-        print(f'[pc-histogram] left TrnProgress 0x{self.pc_histogram_state:04x} '
+        modem_log.debug(f'[pc-histogram] left TrnProgress 0x{self.pc_histogram_state:04x} '
               f'at sample {samples} ({samples / 8000:.3f}s) after {held} samples '
               f'({held / 8000:.3f}s); {len(self.pc_state_totals)} PCs so far')
 
@@ -4490,11 +4501,11 @@ class EiconSipEndpoint:
                  f'{self.pc_state_samples / 8000:.3f}s'
                  if self.pc_histogram_state is not None
                  else f'resident=0x{resident:04x}')
-        print(f'[pc-histogram] {len(rows)} PCs executed, {total} instructions, '
+        modem_log.debug(f'[pc-histogram] {len(rows)} PCs executed, {total} instructions, '
               f'{scope}; wrote {self.pc_histogram}')
         for pc, op, count in sorted(rows, key=lambda r: -r[2])[:20]:
             share = 100.0 * count / total if total else 0.0
-            print(f'  {pc:04x}  {count:12d}  {share:5.1f}%  {disas(op)}')
+            modem_log.debug(f'  {pc:04x}  {count:12d}  {share:5.1f}%  {disas(op)}')
 
     def _complete_answer(self) -> None:
         """Finish a ringing incoming call: build the card and send 200 OK.
@@ -4528,7 +4539,7 @@ class EiconSipEndpoint:
         self.response(200, 'OK', headers, peer, sdp,
                       [f'Contact: <sip:eicon@{local_ip}:{self.sip_port}>',
                        'Content-Type: application/sdp'], self.call.local_tag)
-        print(f'[call] answering {peer[0]}:{peer[1]}, RTP -> '
+        modem_log.info(f'[call] answering {peer[0]}:{peer[1]}, RTP -> '
               f'{media[0]}:{media[1]}, {self.codec_name}/8000')
 
     def local_sdp(self, local_ip: str) -> str:
@@ -4548,11 +4559,11 @@ class EiconSipEndpoint:
         at all.
         """
         if self.call or self.outgoing:
-            print('[sip] already on a call; not dialling')
+            modem_log.info('[sip] already on a call; not dialling')
             return False
         host = target or self.registrar
         if not host:
-            print('[sip] no dial target and no registrar')
+            modem_log.info('[sip] no dial target and no registrar')
             return False
         if ':' in host:
             name, _, port = host.partition(':')
@@ -4569,7 +4580,7 @@ class EiconSipEndpoint:
             'branch': f'z9hG4bK{random.randrange(2**48):012x}',
             'authorized': False,
         }
-        print(f'[sip] dialling {number} at {peer[0]}:{peer[1]}')
+        modem_log.info(f'[sip] dialling {number} at {peer[0]}:{peer[1]}')
         # Boot before the INVITE goes out, not when the answer comes back.
         # Firmware entry is several seconds of wall time, and doing it after
         # the 200 OK means the answerer has already been sending media for
@@ -4680,18 +4691,18 @@ class EiconSipEndpoint:
             return
         if status < 200:
             if self.verbose or status in (180, 183):
-                print(f'[sip] outgoing call: {status}')
+                modem_log.info(f'[sip] outgoing call: {status}')
             return
         if status in (401, 407):
             if out['authorized']:
-                print('[sip] outgoing call rejected: authentication failed')
+                modem_log.warning('[sip] outgoing call rejected: authentication failed')
                 self.fail_outgoing()
                 return
             value = (headers.get('www-authenticate')
                      or headers.get('proxy-authenticate', ''))
             challenge = self.digest_challenge(value)
             if not (challenge.get('realm') and challenge.get('nonce')):
-                print('[sip] outgoing call: unusable authentication challenge')
+                modem_log.info('[sip] outgoing call: unusable authentication challenge')
                 self.fail_outgoing()
                 return
             out['authorized'] = True
@@ -4700,7 +4711,7 @@ class EiconSipEndpoint:
             self.send_invite(challenge)
             return
         if status >= 300:
-            print(f'[sip] outgoing call failed: {status}')
+            modem_log.warning(f'[sip] outgoing call failed: {status}')
             self.send_ack(headers)
             self.fail_outgoing()
             return
@@ -4708,7 +4719,7 @@ class EiconSipEndpoint:
         # 2xx: the far end answered.
         media = parse_g711_sdp(body, peer, self.payload_type)
         if media is None:
-            print('[sip] answer carried no usable G.711 media; hanging up')
+            modem_log.info('[sip] answer carried no usable G.711 media; hanging up')
             self.send_ack(headers)
             self.fail_outgoing()
             return
@@ -4725,7 +4736,7 @@ class EiconSipEndpoint:
         self.call = Call(peer, media, out['call_id'], out['tag'], card)
         self._attach_reactive_engine(self.call)
         self.attach_physical_line(self.call)
-        print(f'[call] connected to {media[0]}:{media[1]}, '
+        modem_log.info(f'[call] connected to {media[0]}:{media[1]}, '
               f'{self.codec_name}/8000, modem role {self.modem_role}')
 
     def _attach_reactive_engine(self, call: Call) -> None:
@@ -4768,7 +4779,7 @@ class EiconSipEndpoint:
                 compression=self.tx_v42bis, v44=self.tx_v44,
                 trace=bool(getattr(self.ppp_config, 'trace', False)))
             call.card.lapm = data_link
-            print('[v42] synchronous link attached')
+            modem_log.debug('[v42] synchronous link attached')
         if (self.tx_v42 and not self.native_mips
                 and not (PHASE3_ENGINE_BINARY or DIGITAL_PHASE3_ENGINE_BINARY
                          or REACTIVE_ENGINE_BINARY)):
@@ -4781,8 +4792,8 @@ class EiconSipEndpoint:
                     and os.environ.get('EICON_CODEC_MAILBOX', '0') == '1'):
                 call.card._codec_mailbox = call.v34_mailbox
                 call.codec_mailbox = True
-                print('[v34-mailbox] polling at codec sample boundaries')
-            print('[v34-mailbox] attached per-sample V.42 host interface')
+                modem_log.debug('[v34-mailbox] polling at codec sample boundaries')
+            modem_log.debug('[v34-mailbox] attached per-sample V.42 host interface')
         if DIGITAL_PHASE3_ENGINE_BINARY:
             binary = Path(DIGITAL_PHASE3_ENGINE_BINARY)
             if not binary.exists():
@@ -4790,7 +4801,7 @@ class EiconSipEndpoint:
                     f'EICON_V90D_PHASE3_ENGINE does not exist: {binary}')
             call.reactive_engine = DigitalPhase3ProcessEngine(
                 binary, data_link=data_link)
-            print(f'[reactive-engine] attached {binary} as stateful '
+            modem_log.debug(f'[reactive-engine] attached {binary} as stateful '
                   f'digital V.90D Phase-3 bridge ({self.codec_name})')
             return
         if PHASE3_ENGINE_BINARY:
@@ -4800,7 +4811,7 @@ class EiconSipEndpoint:
                     f'EICON_V90A_PHASE3_ENGINE does not exist: {binary}')
             call.reactive_engine = Phase3ProcessEngine(
                 binary, data_link=data_link)
-            print(f'[reactive-engine] attached {binary} as coupled '
+            modem_log.debug(f'[reactive-engine] attached {binary} as coupled '
                   f'Phase-3 source ({self.codec_name})')
             return
         if not REACTIVE_ENGINE_BINARY:
@@ -4815,7 +4826,7 @@ class EiconSipEndpoint:
             binary, 1 if self.law == 'pcma' else 0, pty,
             os.environ.get('EICON_REACTIVE_ENGINE_VERBOSE', '0') != '0',
             REACTIVE_ENGINE_ROLE)
-        print(f'[reactive-engine] attached {binary} as frame-synchronous '
+        modem_log.debug(f'[reactive-engine] attached {binary} as frame-synchronous '
               f'wire peer ({self.codec_name})')
 
     def fail_outgoing(self) -> None:
@@ -4842,19 +4853,19 @@ class EiconSipEndpoint:
             return b''
         if action.kind is ActionKind.ANSWER:
             if self.pending_invite is not None:
-                print('[at] ATA: answering the ringing call')
+                modem_log.debug('[at] ATA: answering the ringing call')
                 self._complete_answer()
                 return b''
             if self.call is None:
                 return self.at.respond('NO CARRIER')
             # The INVITE was answered when it arrived; ATA has nothing left to
             # do but confirm, and the CONNECT follows from the rate word.
-            print('[at] ATA: call already answered at INVITE')
+            modem_log.debug('[at] ATA: call already answered at INVITE')
             return b''
         if action.kind in (ActionKind.HANGUP, ActionKind.RESET):
             if self.call is None and not self.outgoing:
                 return b''
-            print(f'[at] {action}: dropping the call')
+            modem_log.debug(f'[at] {action}: dropping the call')
             if self.outgoing:
                 self.send_bye()
             self.end_call('AT command')
@@ -4884,7 +4895,7 @@ class EiconSipEndpoint:
         options = self.at.options()
         eicon_mips_shim.set_modem_options(options)
         import eicon_idi
-        print(f'[at] next call: {eicon_idi.describe_cai(eicon_idi.build_cai(options))}')
+        modem_log.debug(f'[at] next call: {eicon_idi.describe_cai(eicon_idi.build_cai(options))}')
 
     def at_watch(self, call: 'Call') -> None:
         """Emit CONNECT once the card publishes a negotiated rate.
@@ -4913,9 +4924,9 @@ class EiconSipEndpoint:
             tx = call.card.negotiated_downstream_bps
             rx = call.card.negotiated_upstream_bps
             call.at_connected = True
-            print(f'[at] CONNECT V34 TX {tx} RX {rx} bit/s LAPM')
+            modem_log.debug(f'[at] CONNECT V34 TX {tx} RX {rx} bit/s LAPM')
             self.pty.write_terminal(self.at.connected(
-                tx, rx, 'V34', 'LAPM', 'NONE'))
+                tx, rx, 'V34', 'LAPM', modem_log.compression_name(lapm)))
             return
         if not rate or (rate & 0x1FC0):
             # In raw fallback the WDB rate word may never be republished,
@@ -4948,13 +4959,13 @@ class EiconSipEndpoint:
         elif carrier == 'V34':
             upstream = speed
         call.at_connected = True
-        print(f'[at] CONNECT {carrier} downstream {downstream} bit/s, '
+        modem_log.debug(f'[at] CONNECT {carrier} downstream {downstream} bit/s, '
               f'upstream {upstream or "?"} bit/s '
               f'(rate word 0x{rate:04x})')
         if self.pty is not None:
             self.pty.write_terminal(
                 self.at.connected(downstream, upstream, carrier, protocol,
-                                  'NONE'))
+                                  modem_log.compression_name(lapm)))
 
     def hangup_call(self, reason: str) -> None:
         """End the current call *from this side*, telling the far end.
@@ -4985,18 +4996,18 @@ class EiconSipEndpoint:
                 cseq=call.cseq)
             try:
                 self.sip.sendto(message.encode(), peer)
-                print(f'[call] BYE sent to {peer[0]}:{peer[1]}')
+                modem_log.info(f'[call] BYE sent to {peer[0]}:{peer[1]}')
             except OSError as exc:
                 # A shutdown path must not fail because the socket already
                 # went; the call is over either way.
-                print(f'[call] could not send BYE: {exc}')
+                modem_log.warning(f'[call] could not send BYE: {exc}')
         self.end_call(reason)
 
     def end_call(self, reason: str) -> None:
         """Drop the current call, telling the terminal if one is attached."""
         if self.call is None:
             return
-        print(f'[call] ended by {reason}')
+        modem_log.info(f'[call] ended by {reason}')
         # Before anything else releases the call: the wire clock is a thread
         # holding this object, and it must not be sending for a call that has
         # been torn down under it.
@@ -5009,12 +5020,12 @@ class EiconSipEndpoint:
             if census is not None:
                 line = census()
                 if line:
-                    print(f'[adsp] {line}')
+                    modem_log.debug(f'[adsp] {line}')
         if self.call.analog_line is not None:
             self.call.analog_line.set_hook(False)
             if hasattr(self.call.card, 'set_line_hook'):
                 self.call.card.set_line_hook(False)
-            print('[analog-line] on-hook; codec detached from line')
+            modem_log.debug('[analog-line] on-hook; codec detached from line')
         if self.call.reactive_engine is not None:
             self.call.reactive_engine.close()
         self.call = None
@@ -5041,7 +5052,7 @@ class EiconSipEndpoint:
         if call is None:
             return
         card = call.card
-        print(f'[call] media fault at sample {call.samples} '
+        modem_log.warning(f'[call] media fault at sample {call.samples} '
               f'({call.samples / 8000:.3f}s), overlay=0x'
               f'{getattr(card, "resident", 0):04x}, bootpage='
               f'{card.dm[0x3FB0]}, TrnProgress=0x{card.dm[0x3FC2]:04x}, '
@@ -5062,7 +5073,7 @@ class EiconSipEndpoint:
         self.close_ppp()
 
     def run(self) -> None:
-        print(f'[sip] listening on {self.bind}:{self.sip_port}; RTP '
+        modem_log.info(f'[sip] listening on {self.bind}:{self.sip_port}; RTP '
               f'{self.bind}:{self.rtp_port}; {self.codec_name} only; '
               f'modem role {self.modem_role}')
         # Before the dial grace period is measured, not after: booting a card
@@ -5070,7 +5081,7 @@ class EiconSipEndpoint:
         # whole of it here and dial the moment the boot returned.
         self.preboot()
         if self.pty is not None:
-            print('[at] terminal is live; AT commands are answered now, '
+            modem_log.info('[at] terminal is live; AT commands are answered now, '
                   'not only once a call is up')
         dial_at = None
         if self.dial_number:
@@ -5105,7 +5116,7 @@ class EiconSipEndpoint:
                 if (self.pending_invite is not None
                         and self.pending_invite['answer_at'] is not None
                         and time.monotonic() >= self.pending_invite['answer_at']):
-                    print('[call] ring cadence elapsed; answering')
+                    modem_log.info('[call] ring cadence elapsed; answering')
                     self._complete_answer()
                 now = time.monotonic()
                 for key, _ in self.selector.select(self.next_wakeup(now)):
@@ -5161,6 +5172,8 @@ def _parse_dm_assertion(text: str) -> tuple[int, int, int | None, int]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--log-level', choices=('info', 'debug'), default='info',
+                    help='info: calls and AT events; debug: DSP and media diagnostics')
     ap.add_argument('--bind', default='0.0.0.0')
     ap.add_argument('--advertise', help='IP address placed in Contact and SDP')
     ap.add_argument('--sip-port', type=int, default=5060)
@@ -5505,6 +5518,7 @@ def main() -> int:
                     help='diagnostic: invoke firmware PM 0x2602 at INFO state 0x24')
     ap.add_argument('-v', '--verbose', action='store_true')
     args = ap.parse_args()
+    modem_log.configure(args.log_level)
     if args.native_mips and args.firmware_set == 'analog109' and args.mips_image == Path('docs/firmware/te_dmlt.pm'):
         args.mips_image = Path('docs/firmware/build-109/te_dmlt.am')
     select_firmware_set(args.firmware_set)
@@ -5580,7 +5594,7 @@ def main() -> int:
             except ValueError as exc:
                 ap.error(f'--ppp-pool: {exc}')
             if args.ppp_local not in ppp_pool:
-                print(f'[ppp] note: {args.ppp_local} is outside '
+                modem_log.debug(f'[ppp] note: {args.ppp_local} is outside '
                       f'{args.ppp_pool}; callers will be on a different '
                       'prefix from this end')
             peer_address = args.ppp_local    # replaced per call from the pool
@@ -5619,7 +5633,7 @@ def main() -> int:
             except Exception:
                 device.close()
                 raise
-            print(f'[ppp] {device.name} up: {args.ppp_local}, '
+            modem_log.debug(f'[ppp] {device.name} up: {args.ppp_local}, '
                   f'{args.ppp_pool} routed to it')
             ppp_network = TunBridge(device)
         elif not args.ppp_no_network and not args.ppp_client:
@@ -5628,7 +5642,7 @@ def main() -> int:
             # advertises defaults to it, and a query to it is answered by the
             # NAT's proxy rather than sent to an address nothing routes to.
             ppp_network = UserNetwork(local_address=args.ppp_local)
-            print('[ppp] userspace NAT: TCP, UDP and ICMP echo are '
+            modem_log.debug('[ppp] userspace NAT: TCP, UDP and ICMP echo are '
                   're-originated as host sockets. No root, nothing routed')
     if args.pc_histogram_from and not args.pc_histogram:
         ap.error('--pc-histogram-from requires --pc-histogram')
@@ -5715,7 +5729,7 @@ def main() -> int:
         endpoint.run()
     finally:
         if ppp_network is not None:
-            print(f'[ppp] {ppp_network.summary()}')
+            modem_log.debug(f'[ppp] {ppp_network.summary()}')
             # For a tun this takes the interface and its route with it, so a
             # run that ends does not leave a dead utun and a route to nowhere;
             # for the userspace NAT it closes every flow's socket.

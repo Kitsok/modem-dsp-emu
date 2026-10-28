@@ -70,6 +70,8 @@ Usage:
 """
 from __future__ import annotations
 
+import modem_log
+
 import argparse
 import collections
 import ctypes
@@ -312,7 +314,7 @@ class KernelDispatch:
         pending = (dsp_counter - self.host_event_counter) & 0xffff
         if pending > 8:
             if self.log:
-                print(f'  sample {index}: lost {pending - 8} DSP events')
+                modem_log.debug(f'  sample {index}: lost {pending - 8} DSP events')
             self.host_event_counter = (dsp_counter - 8) & 0xffff
             pending = 8
         for _ in range(pending):
@@ -326,7 +328,7 @@ class KernelDispatch:
             elif event == 0x0003:
                 self.published_trnprogress = dm[DM_TRNPROG_DBS]
             if self.log and event in (0x0001, 0x0002, 0x0003):
-                print(f'  sample {index}: data-pump event {event:04x}; '
+                modem_log.debug(f'  sample {index}: data-pump event {event:04x}; '
                       f'change={dm[DM_CHANGE_BITS]:04x} '
                       f'status={self.published_rstatus_ch:04x}/'
                       f'{self.published_rstatus:04x} '
@@ -346,7 +348,7 @@ class KernelDispatch:
                     self.doorbell[bit] += 1
                     entry = dm[DM_ENTRIES + bit]
                     if entry and self.log:
-                        print(f'  sample {index}: doorbell bit {bit} -> '
+                        modem_log.debug(f'  sample {index}: doorbell bit {bit} -> '
                               f'entry {entry:04x}')
         wanted = dm[DM_DOWNLOAD_REQ]
         if (dm[DM_DOWNLOAD_FLAG] and wanted != self.card.resident
@@ -360,7 +362,7 @@ class KernelDispatch:
             # page is resident before dispatching the task's completion.
             dm[DM_WSTATUS] = 0x1000        # BOOTFINISHED; ACTIVATE was a strobe
             if self.log:
-                print(f'  sample {index}: served 0x{wanted:04x} {description}')
+                modem_log.debug(f'  sample {index}: served 0x{wanted:04x} {description}')
         if bits & 0x0002:
             hist.update(self.resume(DM_ENTRIES + 1, index, fast=fast))
             # BOOTFINISHED is a one-communication-cycle acknowledgement, not
@@ -408,7 +410,7 @@ class KernelDispatch:
         finally:
             self.card.pm[PM_FOREGROUND_SLOT] = saved
         if self.log:
-            print(f'  sample {index}: resumed entry {entry:04x} through '
+            modem_log.debug(f'  sample {index}: resumed entry {entry:04x} through '
                   f'PM {PM_FOREGROUND_SLOT:04x}')
         return hist
 
@@ -484,7 +486,7 @@ class KernelDispatch:
         hist = self.resume(DM_ENTRIES + 1, index, fast=fast)
         dm[DM_WSTATUS] &= ~0x1000
         if self.log:
-            print(f'  sample {index}: supervisor loaded V.8 ({description})')
+            modem_log.debug(f'  sample {index}: supervisor loaded V.8 ({description})')
         return hist
 
 
@@ -779,9 +781,9 @@ def main() -> int:
     card_driver.boot()
     card = card_driver.card
     dm, pm = card.dm, card.pm
-    print(f'[card] kernel booted to IDLE, TIKRNL image downloaded; '
+    modem_log.debug(f'[card] kernel booted to IDLE, TIKRNL image downloaded; '
           f'imask=0x{ADSP.adsp2181_imask(card.cpu):03x}')
-    print(f'[card] before the foreground runs: DM 2f27..2f2b = '
+    modem_log.debug(f'[card] before the foreground runs: DM 2f27..2f2b = '
           + ' '.join(f'{dm[a]:04x}' for a in range(DM_RING_PTRS, DM_RING_PTRS + 5)))
 
     # The pointer block is empty until the foreground wakes, and the foreground
@@ -794,18 +796,18 @@ def main() -> int:
             break
     else:
         raise SystemExit('the foreground never initialised DM 0x2F28')
-    print(f'[card] after {primed} SPORT0 slots:     DM 2f27..2f2b = '
+    modem_log.debug(f'[card] after {primed} SPORT0 slots:     DM 2f27..2f2b = '
           + ' '.join(f'{dm[a]:04x}' for a in range(DM_RING_PTRS, DM_RING_PTRS + 5))
           + '  (written by PM 0x02AD, not by us)')
     desc = dm[DM_CMD_DESC]
-    print(f'[card] command ring descriptor DM {desc:04x}: count={dm[desc + 3]:04x} '
+    modem_log.debug(f'[card] command ring descriptor DM {desc:04x}: count={dm[desc + 3]:04x} '
           f'ptr={dm[desc + 4]:04x} base={dm[desc + 5]:04x} size={dm[desc + 6]:04x}')
 
     tone = make_stimulus(args.stimulus, args.samples, args.freq, args.amp)
 
     # The one and only thing the host hands the kernel by hand.
     card_driver.push(TASK_ENTRY)
-    print(f'[host] queued the task entry PM {TASK_ENTRY:04x} as a host command')
+    modem_log.debug(f'[host] queued the task entry PM {TASK_ENTRY:04x} as a host command')
 
     totals: collections.Counter = collections.Counter()
     registered_at = None
@@ -817,12 +819,12 @@ def main() -> int:
         totals.update(card_driver.strobe())
         if registered_at is None and totals.get(TASK_ENTRY):
             registered_at = index
-            print(f'[card] sample {index}: the kernel dispatched PM '
+            modem_log.debug(f'[card] sample {index}: the kernel dispatched PM '
                   f'{TASK_ENTRY:04x} from the ring')
-            print(f'       DM 2f27..2f2b = '
+            modem_log.debug(f'       DM 2f27..2f2b = '
                   + ' '.join(f'{dm[a]:04x}'
                              for a in range(DM_RING_PTRS, DM_RING_PTRS + 5)))
-            print(f'       PM {PM_FOREGROUND_SLOT:04x} = '
+            modem_log.debug(f'       PM {PM_FOREGROUND_SLOT:04x} = '
                   f'{pm[PM_FOREGROUND_SLOT] & 0xFFFFFF:06x}   '
                   f'PM {PM_ISR_SLOT:04x} = {pm[PM_ISR_SLOT] & 0xFFFFFF:06x}')
             # The task init clears PM 0x0900 upward, so the boot page can only
@@ -838,11 +840,11 @@ def main() -> int:
                     raise RuntimeError(f'missing base overlay 0x{base_id:04x}')
                 card._download(base_entry[0])
             card.download_overlay(DIAL_ID)
-            print(f'       DIAL downloaded (0x{DIAL_ID:04x})')
+            modem_log.debug(f'       DIAL downloaded (0x{DIAL_ID:04x})')
             if args.dial_v8:
                 card_driver.program_v8_call(calling=not args.answering)
                 norm_was_set = True
-                print(f'[host] DIAL {"answering" if args.answering else "calling"} '
+                modem_log.debug(f'[host] DIAL {"answering" if args.answering else "calling"} '
                       'setup programmed '
                       f'(GEN_SETUP1={dm[DM_DB + 1]:04x}, V.8/V.34 enabled)')
                 totals.update(card._run(0x08F1, 200_000))
@@ -850,7 +852,7 @@ def main() -> int:
                 # before the supervisor permits page 6. Run that entry only
                 # after the underlying "own" images are resident.
                 totals.update(card._run(0x13CC, 1_000_000))
-                print('[host] DIAL NORM initialization entry 0x13cc completed')
+                modem_log.debug('[host] DIAL NORM initialization entry 0x13cc completed')
             continue
         if registered_at is not None:
             totals.update(card_driver.service(index))
@@ -865,45 +867,45 @@ def main() -> int:
                 dm[DM_LINE_RX] |= 0x0020
                 totals.update(card._run(dm[DM_ENTRIES], 200000))
                 v8_tx_start = len(card_driver.tx)
-                print(f'[host] sample {index}: TIKRNL selected V.8; '
+                modem_log.debug(f'[host] sample {index}: TIKRNL selected V.8; '
                       'overlay 0x025f loaded, line assigned and resumed')
             if (args.dial_v8 and norm_was_set and not v8_loaded
                     and not (dm[DM_DB + 1] & 0x0080)):
                 totals.update(card_driver.load_v8(index))
                 v8_loaded = True
                 v8_tx_start = len(card_driver.tx)
-                print(f'[host] sample {index}: DIAL consumed NORM; '
+                modem_log.debug(f'[host] sample {index}: DIAL consumed NORM; '
                       'V.8 overlay 0x025f loaded and resumed')
 
-    print(f'[card] {args.samples} SPORT0 slots; queue DM 2e44={dm[DM_QUEUE_HEAD]:04x} '
+    modem_log.debug(f'[card] {args.samples} SPORT0 slots; queue DM 2e44={dm[DM_QUEUE_HEAD]:04x} '
           f'2e45={dm[DM_QUEUE_TAIL]:04x}')
-    print(f'[card] host commands issued: {len(card_driver.commands)} '
+    modem_log.debug(f'[card] host commands issued: {len(card_driver.commands)} '
           + ' '.join(f'{c:04x}' for c in card_driver.commands[:8]))
-    print(f'[card] kernel ring dispatch PM {PM_DISPATCH:04x}: '
+    modem_log.debug(f'[card] kernel ring dispatch PM {PM_DISPATCH:04x}: '
           f'{totals.get(PM_DISPATCH, 0)}   task continuation PM 06fc: '
           f'{totals.get(0x06FC, 0)}')
-    print('[card] task entries reached: '
+    modem_log.debug('[card] task entries reached: '
           + ' '.join(f'{a:04x}={totals.get(a, 0)}'
                      for a in (TASK_ENTRY, 0x06BB, 0x06D8, 0x08F0, 0x08F1)))
-    print('[card] DIAL: line handler 1bbd=%d state dispatcher 1b9c=%d'
+    modem_log.debug('[card] DIAL: line handler 1bbd=%d state dispatcher 1b9c=%d'
           % (totals.get(0x1BBD, 0), totals.get(0x1B9C, 0)))
     if args.dial_v8:
-        print('[card] V.8 transition: loaded=%s resident=0x%04x '
+        modem_log.debug('[card] V.8 transition: loaded=%s resident=0x%04x '
               'entry08f0=%d entry08f1=%d action204a=%d'
               % (v8_loaded, card.resident, totals.get(0x08F0, 0),
                  totals.get(0x08F1, 0), totals.get(0x204A, 0)))
-    print('[card] doorbell bits: '
+    modem_log.debug('[card] doorbell bits: '
           + (' '.join(f'bit{b}={n}' for b, n in sorted(card_driver.doorbell.items()))
              or 'none'))
     if card.served:
-        print('[card] overlays served: '
+        modem_log.debug('[card] overlays served: '
               + ' '.join(f'0x{k:04x} x{v}' for k, v in card.served.most_common()))
-    print(f'[card] DM 3F08={dm[0x3F08]:04x} 3F09={dm[0x3F09]:04x} '
+    modem_log.debug(f'[card] DM 3F08={dm[0x3F08]:04x} 3F09={dm[0x3F09]:04x} '
           f'3FB0={dm[0x3FB0]:04x} 3FC1={dm[0x3FC1]:04x} '
           f'3FC2={dm[0x3FC2]:04x} 3995={dm[0x3995]:04x} '
           f'3996={dm[0x3996]:04x} '
           f'31A9={dm[DM_DOWNLOAD_FLAG]:04x} 31AA={dm[DM_DOWNLOAD_REQ]:04x}')
-    print(f'[card] PCM buffers: RXptr={dm[DM_RX_BUFFER_POINTER]:04x} '
+    modem_log.debug(f'[card] PCM buffers: RXptr={dm[DM_RX_BUFFER_POINTER]:04x} '
           f'RX={dm[DM_RX_BUFFER]:04x} TXptr={dm[DM_TX_BUFFER_POINTER]:04x} '
           f'TX={dm[DM_TX_BUFFER]:04x}')
     if args.dial_v8:
@@ -912,7 +914,7 @@ def main() -> int:
         counts = collections.Counter(post_v8)
         response_words = sum(value not in (0x0000, 0x00ff, 0x0400)
                              for value in post_v8)
-        print(f'[card] SPORT0 TX after V.8 activation: words={len(post_v8)} '
+        modem_log.debug(f'[card] SPORT0 TX after V.8 activation: words={len(post_v8)} '
               f'unique={len(set(post_v8))} '
               f'response={response_words} '
               f'top={",".join(f"{value:04x}:{count}" for value, count in counts.most_common(8))} '
@@ -920,14 +922,14 @@ def main() -> int:
 
     undelivered = len(card_driver.commands) - totals.get(PM_DISPATCH, 0)
     if undelivered > 0:
-        print(f'[card] ERROR: {undelivered} ordinary host command(s) remain in '
+        modem_log.debug(f'[card] ERROR: {undelivered} ordinary host command(s) remain in '
               'the ring; overlay completions must use the registered one-shot '
               'resume path, not this ring')
     if args.dial_v8 and (not v8_loaded or not totals.get(0x08F0)):
-        print('[card] ERROR: DIAL did not enter the V.8 overlay through PM 08f0')
+        modem_log.debug('[card] ERROR: DIAL did not enter the V.8 overlay through PM 08f0')
         return 1
     if args.dial_v8 and response_words == 0:
-        print('[card] ERROR: V.8 ran but emitted no response on the B-channel')
+        modem_log.debug('[card] ERROR: V.8 ran but emitted no response on the B-channel')
         return 1
     return 0
 

@@ -40,6 +40,7 @@ to pay less often.
 from __future__ import annotations
 
 import atexit
+from modem_log import debug as print, debug_enabled
 import os
 import sys
 import threading
@@ -67,6 +68,8 @@ def emit(message: str, *, limit: int | None = None, file=None) -> bool:
     two different sites never share a budget and one site never escapes its own
     by formatting a different value each time.
     """
+    if not debug_enabled():
+        return False
     cap = DEFAULT_LIMIT if limit is None else limit
     frame = sys._getframe(1)
     key = (frame.f_code.co_filename, frame.f_lineno)

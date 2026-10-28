@@ -53,6 +53,8 @@ Usage:
 """
 from __future__ import annotations
 
+import modem_log
+
 import argparse
 import atexit
 import collections
@@ -325,7 +327,7 @@ class AnalogKernelDispatch:
         finally:
             self.card.pm[PM_FOREGROUND_SLOT] = saved
         if self.log:
-            print(f'  sample {index}: resumed entry {entry:04x}')
+            modem_log.debug(f'  sample {index}: resumed entry {entry:04x}')
 
     def service(self, index: int) -> None:
         """The host half: answer doorbells and serve overlay downloads."""
@@ -356,7 +358,7 @@ class AnalogKernelDispatch:
             self.card.switches.append((index, dm[DM_BOOTPAGE], wanted))
             download_entry = dm[drive.RESUME_DOWNLOAD]
             if self.log:
-                print(f'  sample {index}: served 0x{wanted:04x} {description}')
+                modem_log.debug(f'  sample {index}: served 0x{wanted:04x} {description}')
         # The descriptor is a table of host-service entries, not merely a
         # diagnostic counter.  The PRI kernel service dispatches every
         # asserted slot; Analog needs the same handoff.  In particular, the
@@ -369,7 +371,7 @@ class AnalogKernelDispatch:
             entry = dm[DM_ENTRIES + bit]
             if entry:
                 if self.log:
-                    print(f'  sample {index}: doorbell bit {bit} -> '
+                    modem_log.debug(f'  sample {index}: doorbell bit {bit} -> '
                           f'entry {entry:04x}')
                 self.resume(entry, index)
         if download_entry and not (bits & 0x0002):
@@ -664,7 +666,7 @@ class AnalogKernelModem:
         if tx_pcm_path:
             self._tx_pcm = open(tx_pcm_path, 'wb', buffering=0)
             atexit.register(self._tx_pcm.close)
-            print(f'[analog-kernel] raw codec TX PCM -> {tx_pcm_path}')
+            modem_log.debug(f'[analog-kernel] raw codec TX PCM -> {tx_pcm_path}')
         self._pins_applied = 0
         self._hard_pins: dict[int, bool] = {}
         self._v90a_shaper_active = False
@@ -681,7 +683,7 @@ class AnalogKernelModem:
             self._dm_csv.write('sample,cursor,i0,i1,i4,i5,dm_i0,dm_i1,dm_i4,dm_i5,'
                                + ','.join('dm%04x' % a for a in DM_CSV_LIST)
                                + '\n')
-            print(f'[analog-kernel] DM sampler -> {DM_CSV_PATH}: '
+            modem_log.debug(f'[analog-kernel] DM sampler -> {DM_CSV_PATH}: '
                   + ' '.join('0x%04x' % a for a in DM_CSV_LIST)
                   + f' (every {DM_CSV_EVERY} bearer frames)')
         if codec_rate != bearer_rate:
@@ -710,7 +712,7 @@ class AnalogKernelModem:
                     down, up, taps_per_phase=out_taps,
                     phase_offset=ANALOG_RESAMPLER_OUT_PHASE,
                     cutoff_multiplier=ANALOG_RESAMPLER_OUT_CUTOFF_MULT)
-            print(f'[analog-kernel] codec {codec_rate} Hz, bearer '
+            modem_log.debug(f'[analog-kernel] codec {codec_rate} Hz, bearer '
                   f'{bearer_rate} Hz: resampling {up}:{down} in, {down}:{up} '
                   f'out ({ANALOG_RESAMPLER_IN_KIND}/'
                   f'{ANALOG_RESAMPLER_OUT_KIND}, '
@@ -745,7 +747,7 @@ class AnalogKernelModem:
                     'NORM entry only means anything on the DIAL page')
             before = self.dm[DM_GEN_SETUP1]
             self.card._run(DIAL_NORM_ENTRY, 1_000_000)
-            print(f'[analog-kernel] DIAL NORM entry PM '
+            modem_log.debug(f'[analog-kernel] DIAL NORM entry PM '
                   f'0x{DIAL_NORM_ENTRY:04x} run for {role}: GEN_SETUP1 '
                   f'0x{before:04x} -> 0x{self.dm[DM_GEN_SETUP1]:04x}, '
                   f'TrnProgress 0x{self.dm[DM_TRNPROGRESS]:04x}')
@@ -786,7 +788,7 @@ class AnalogKernelModem:
             # (handoff §0.4). The count is otherwise only printed under
             # EICON_ANALOG_TRACE_CURSOR.
             if self._pins_applied == 1:
-                print(f'[analog-kernel] PINNED FIRMWARE STATE: '
+                modem_log.debug(f'[analog-kernel] PINNED FIRMWARE STATE: '
                       f'DM(0x{address:04x}) = 0x{value:04x} first applied at '
                       f'sample {sample_index}')
         # The SPORT-dispatch backend does not enter Card.frame(); publish the
@@ -844,7 +846,7 @@ class AnalogKernelModem:
                 ADSP.adsp2181_pin_dm(self.card.cpu, 0x2119, selector, 1)
                 self._v90a_shaper_active = True
                 self._v90a_shaper_value = selector
-                print(f'[analog-kernel] V90A TX shaper: DM(0x2119) = '
+                modem_log.debug(f'[analog-kernel] V90A TX shaper: DM(0x2119) = '
                       f'0x{selector:04x} from sample {sample_index}')
             self.dm[0x2119] = selector
             if V90A_TX_SCALE:
@@ -863,7 +865,7 @@ class AnalogKernelModem:
             cursor = self.dm[TRACE_CURSOR]
             if cursor != self._cursor_last:
                 self._cursor_last = cursor
-                print(f'[analog-kernel] cursor 0x{cursor:04x} '
+                modem_log.debug(f'[analog-kernel] cursor 0x{cursor:04x} '
                       f'(sample {sample_index}, pins {self._pins_applied})')
         if self.card.resident != before:
             self.resident = self.card.resident
@@ -900,7 +902,7 @@ class AnalogKernelModem:
             self.pm[0x1EB4 + offset] = (value >> 16) & 0xFFFF
             self.pm[0x21F4 + offset] = value & 0xFFFF
         self._v90a_eq_scaled = True
-        print(f'[analog-kernel] diagnostic V90A equalizer coefficient scale '
+        modem_log.debug(f'[analog-kernel] diagnostic V90A equalizer coefficient scale '
               f'{scale:g} applied at caller 0x00c0')
 
     def frame_fast(self, word: int, sample_index: int = 0,
@@ -1004,7 +1006,7 @@ def main() -> int:
     modem = AnalogKernelModem(modem_role=args.role, log=args.log)
     modem.boot()
     modem.configure_modem(args.role)
-    print(f'[analog-kernel] booted; resident=0x{modem.card.resident:04x} '
+    modem_log.debug(f'[analog-kernel] booted; resident=0x{modem.card.resident:04x} '
           f'role={args.role}')
 
     if args.replay:
@@ -1012,7 +1014,7 @@ def main() -> int:
         # The bearer is G.711 on the wire; the Analog codec boundary is
         # signed linear, which is what `Card.line_rx_word` hands over.
         stimulus = [decode_mulaw(code) for code in codes]
-        print(f'[analog-kernel] replaying {len(stimulus)} samples from '
+        modem_log.debug(f'[analog-kernel] replaying {len(stimulus)} samples from '
               f'{args.replay}')
     else:
         stimulus = make_stimulus(args.stimulus, args.samples, args.freq,
@@ -1031,23 +1033,23 @@ def main() -> int:
         peak_level = max(peak_level, dm[0x07BC])
         peak_count = max(peak_count, dm[0x07BD])
 
-    print(f'[analog-kernel] frames={modem.driver.frames} '
+    modem_log.debug(f'[analog-kernel] frames={modem.driver.frames} '
           f'sport1 tx writes={modem.driver.tx_written}')
-    print(f'[analog-kernel] RXSAMPLE distinct contents={len(rxsample_contents)}'
+    modem_log.debug(f'[analog-kernel] RXSAMPLE distinct contents={len(rxsample_contents)}'
           f'  (direct backend: 24 over 60,001 samples)')
-    print('[analog-kernel] shellinptr: ' + ', '.join(
+    modem_log.debug('[analog-kernel] shellinptr: ' + ', '.join(
         '%04x=%.1f%%' % (value, 100.0 * n / len(stimulus))
         for value, n in shellinptr.most_common(4)))
-    print(f'[analog-kernel] peak DM(07BC)={peak_level} '
+    modem_log.debug(f'[analog-kernel] peak DM(07BC)={peak_level} '
           f'peak DM(07BD)={peak_count} (escape needs 1920, '
           f'threshold DM(0748)={modem.dm[0x0748]})')
-    print('[analog-kernel] doorbell bits: '
+    modem_log.debug('[analog-kernel] doorbell bits: '
           + (', '.join(f'{bit}={n}' for bit, n
                        in sorted(modem.driver.doorbell.items())) or 'none'))
-    print('[analog-kernel] page switches: '
+    modem_log.debug('[analog-kernel] page switches: '
           + (', '.join(f'{i}:page{p}->0x{d:04x}'
                        for i, p, d in modem.card.switches) or 'none'))
-    print('[analog-kernel] TrnProgress first seen: '
+    modem_log.debug('[analog-kernel] TrnProgress first seen: '
           + ', '.join(f'0x{value:04x}@{i}' for value, i in sorted(trn.items())))
     return 0
 

@@ -13,6 +13,8 @@ to stderr.
 """
 from __future__ import annotations
 
+import modem_log
+
 import argparse
 import ctypes
 import os
@@ -138,7 +140,7 @@ class Engine:
                        diag.v90_cp_valid_frames, diag.v90_cp_rejected_frames)
             if current != self._last_diag:
                 self._last_diag = current
-                print('[v90-diag] state=%d mod=%d rx=%d tx=%d event=%d '
+                modem_log.debug('[v90-diag] state=%d mod=%d rx=%d tx=%d event=%d '
                       'phase3=%d s=%d dil=%d cp=%d/%d' % current,
                       file=sys.stderr, flush=True)
         return bytes(tx)
@@ -298,7 +300,7 @@ class Phase3ProcessEngine:
         try:
             self.proc.stdin.write(self._request(frame))
         except BrokenPipeError:
-            print(f'[reactive-data] phase-3 child exited '
+            modem_log.debug(f'[reactive-data] phase-3 child exited '
                   f'returncode={self.proc.poll()}', file=sys.stderr,
                   flush=True)
             raise
@@ -312,7 +314,7 @@ class Phase3ProcessEngine:
             received &= 0x7fff
             if self._data_ready and not self._status_reported:
                 self._status_reported = True
-                print(f'[reactive-data] synchronous bit stream ready; '
+                modem_log.debug(f'[reactive-data] synchronous bit stream ready; '
                       f'consumed={consumed} received={received}', flush=True)
             self._last_consumed = min(DATA_BITS, max(0, consumed))
             payload = result[FRAME_BYTES + DATA_HEADER.size:]

@@ -10,6 +10,8 @@ seam needed before porting IDI/DSPDAA dispatch anchors.
 """
 from __future__ import annotations
 
+import modem_log
+
 import argparse
 import collections
 import struct
@@ -840,16 +842,16 @@ def main() -> int:
                     help='skip the reset/bootstrap (diagnostic; allocator is uninitialized)')
     args = ap.parse_args()
     boot = AnalogMipsBoot(args.image, args.card_type)
-    print(f"[analog-mips] {boot.layout.build}; entry=0x{boot.layout.entry:08x} "
+    modem_log.debug(f"[analog-mips] {boot.layout.build}; entry=0x{boot.layout.entry:08x} "
           f"sp=0x{boot.layout.stack_top:08x} card-type={args.card_type}")
     try:
         boot.run(args.max_insns, reset=not args.entry_only)
     except UcError as exc:
-        print(f"[analog-mips] stopped: {exc}")
+        modem_log.debug(f"[analog-mips] stopped: {exc}")
     if args.configure_audio:
         selected, bitmap = boot.configure_audio()
-        print(f"[analog-mips] AudioCh={selected} AudioTS={bitmap.hex()}")
-    print(boot.report())
+        modem_log.debug(f"[analog-mips] AudioCh={selected} AudioTS={bitmap.hex()}")
+    modem_log.debug(boot.report())
     return 0
 
 

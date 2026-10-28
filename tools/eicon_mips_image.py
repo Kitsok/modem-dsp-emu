@@ -33,6 +33,8 @@ function anchors portable, but it does make the prerequisite load map explicit.
 
 from __future__ import annotations
 
+import modem_log
+
 import argparse
 import re
 import struct
@@ -302,13 +304,13 @@ def main() -> int:
         try:
             layout = derive_layout(path)
         except FormatError as exc:
-            print(f"{path.name}: {exc}")
+            modem_log.debug(f"{path.name}: {exc}")
             continue
         gp = "none" if layout.gp is None else f"0x{layout.gp:08x}"
-        print(f"{path.name}: {layout.build}")
-        print(f"  base 0x{layout.base:08x}  size 0x{layout.size:x}  "
+        modem_log.debug(f"{path.name}: {layout.build}")
+        modem_log.debug(f"  base 0x{layout.base:08x}  size 0x{layout.size:x}  "
               f"entry 0x{layout.entry:08x}")
-        print(f"  gp {gp}  sp 0x{layout.stack_top:08x}  "
+        modem_log.debug(f"  gp {gp}  sp 0x{layout.stack_top:08x}  "
               f"protocol end 0x{layout.protocol_end:08x}"
               f"{'' if layout.stack_top == layout.protocol_end else '  (sp != end!)'}")
     return 0

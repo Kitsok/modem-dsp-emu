@@ -17,6 +17,8 @@ Scope:
 
 from __future__ import annotations
 
+import modem_log
+
 import argparse
 import atexit
 import collections
@@ -1760,7 +1762,7 @@ class MipsShim:
             self.cores[block] = core
             self._idma_addrs[block] = 0
             if self.log:
-                print(f"[mips] new DSP core for register block 0x{block:08x}")
+                modem_log.debug(f"[mips] new DSP core for register block 0x{block:08x}")
         return core
 
     def _start_native_selected_task(self, block: int, core) -> None:
@@ -1804,7 +1806,7 @@ class MipsShim:
         if self.log:
             idma = self._idma_addrs.get(block & 0x1fffffff, self._idma_addr)
             tag = "DM" if idma & 0x4000 else "PM"
-            print(f"[mips] dsp_read {tag} 0x{idma & 0x3fff:04x} -> 0x{val:04x}")
+            modem_log.debug(f"[mips] dsp_read {tag} 0x{idma & 0x3fff:04x} -> 0x{val:04x}")
         # Patch the mapped page (fallback if Unicorn re-reads), and
         # directly set the destination register.
         uc.mem_write(address, struct.pack("<H", val))
@@ -1824,14 +1826,14 @@ class MipsShim:
             self._idma_addrs[block & 0x1fffffff] = value
             ADSP.adsp2181_idma_addr_write(core, value)
             if self.log:
-                print(f"[mips] dsp_addr 0x{value:04x}")
+                modem_log.debug(f"[mips] dsp_addr 0x{value:04x}")
         else:
             ADSP.adsp2181_idma_data_write(core, value)
             self._core_last_write[block & 0x1fffffff] = self._insn_count
             idma = self._idma_addrs.get(block & 0x1fffffff, self._idma_addr)
             if self.log:
                 tag = "DM" if idma & 0x4000 else "PM"
-                print(f"[mips] dsp_write {tag} 0x{idma & 0x3fff:04x} = 0x{value:04x}")
+                modem_log.debug(f"[mips] dsp_write {tag} 0x{idma & 0x3fff:04x} = 0x{value:04x}")
             self.host_writes.append((idma, value))
         return True
 
@@ -1846,7 +1848,7 @@ class MipsShim:
             ADSP.adsp2181_idma_data_write(self.cpu, value & 0xFFFF)
             if self.log:
                 tag = "DM" if self._idma_addr & 0x4000 else "PM"
-                print(f"[mips] idma_write {tag} 0x{self._idma_addr & 0x7fff:04x} = 0x{value:04x}")
+                modem_log.debug(f"[mips] idma_write {tag} 0x{self._idma_addr & 0x7fff:04x} = 0x{value:04x}")
             self.host_writes.append((self._idma_addr, value))
         return True
 
@@ -1865,7 +1867,7 @@ class MipsShim:
             # the init proceed past hardware probes.
             if page not in self.mapped_pages:
                 if self.log:
-                    print(f"[mips] auto-map page phys=0x{page:06x} "
+                    modem_log.debug(f"[mips] auto-map page phys=0x{page:06x} "
                           f"(touch @0x{address:08x} pc=0x{pc:08x})")
                 # ensure_mapped consults the live region list: a bare
                 # mem_map here throws when the page overlaps one of the
@@ -1873,10 +1875,10 @@ class MipsShim:
                 # error rather than the auto-map it is meant to perform.
                 self.ensure_mapped(page, AUTO_PAGE)
             return True
-        print(f"[mips] unmapped access {access} {address:08x} (phys 0x{phys:08x}) "
+        modem_log.debug(f"[mips] unmapped access {access} {address:08x} (phys 0x{phys:08x}) "
               f"sz={size} pc=0x{pc:08x} ra=0x{uc.reg_read(UC_MIPS_REG_RA):08x}")
         for entry in self.recent_trace(12):
-            print(f"   {entry}")
+            modem_log.debug(f"   {entry}")
         return False
 
     def recent_trace(self, count: int) -> list[str]:
@@ -2045,7 +2047,7 @@ class MipsShim:
             a1 = uc.reg_read(UC_MIPS_REG_A1) & 0xFFFF
             a2 = uc.reg_read(UC_MIPS_REG_A2) & 0xFFFF
             if self.log:
-                print(f"[mips] host_write [0x{a0:08x}] {a1:04x} = {a2:04x}")
+                modem_log.debug(f"[mips] host_write [0x{a0:08x}] {a1:04x} = {a2:04x}")
             self.host_writes.append((a1, a2))
             ADSP.adsp2181_host_write(self.core_for(a0), a1, a2)
             self._core_last_write[a0 & 0x1fffffff] = self._insn_count
@@ -2057,7 +2059,7 @@ class MipsShim:
             if self.trace_host_reads:
                 self.host_reads.append((a0 & 0x1FFFFFFF, a1, value))
             if self.log:
-                print(f"[mips] host_read [0x{a0:08x}] {a1:04x} -> {value:04x}")
+                modem_log.debug(f"[mips] host_read [0x{a0:08x}] {a1:04x} -> {value:04x}")
             uc.reg_write(UC_MIPS_REG_V0, value)
             uc.reg_write(UC_MIPS_REG_PC, uc.reg_read(UC_MIPS_REG_RA))
         elif address == STUB_VIRT:
@@ -2293,7 +2295,7 @@ def run_assign(shim: "MipsShim", args) -> None:
     shim.write32(RAM_VIRT + 0x4000 + 0x08, 0)
     shim.write8(RAM_VIRT + 0x4000 + 0x18, args.channel)
 
-    print(f"[assign] calling 0x{SERVICE_ASSIGN:08x} req=0x{RAM_VIRT+0x4000:08x} "
+    modem_log.debug(f"[assign] calling 0x{SERVICE_ASSIGN:08x} req=0x{RAM_VIRT+0x4000:08x} "
           f"base=0x{base_v:08x} res=0x{res_v:08x} desc=0x{desc_v:08x} "
           f"ch={args.channel} mb13=0x{write13:04x} mb14=0x{write14:04x}")
     try:
@@ -2303,39 +2305,39 @@ def run_assign(shim: "MipsShim", args) -> None:
         from unicorn.mips_const import UC_MIPS_REG_PC, UC_MIPS_REG_RA
         pc = shim.uc.reg_read(UC_MIPS_REG_PC)
         ra = shim.uc.reg_read(UC_MIPS_REG_RA)
-        print(f"[assign] fault: {exc} pc=0x{pc:08x} ra=0x{ra:08x}")
-        print("  recent:")
+        modem_log.debug(f"[assign] fault: {exc} pc=0x{pc:08x} ra=0x{ra:08x}")
+        modem_log.debug("  recent:")
         for e in shim.recent_trace(16):
-            print(f"    {e}")
+            modem_log.debug(f"    {e}")
         return
-    print(f"[assign] returned v0=0x{v0:08x} host_writes={len(shim.host_writes)}")
+    modem_log.debug(f"[assign] returned v0=0x{v0:08x} host_writes={len(shim.host_writes)}")
     adsp_dm = ADSP.adsp2181_dm(shim.cpu)
-    print("[assign] TIKRNL command ring DM3327..3336: "
+    modem_log.debug("[assign] TIKRNL command ring DM3327..3336: "
           + " ".join(f"{adsp_dm[a]:04x}"
                      for a in range(0x3327, 0x3337)))
-    print("[assign] TIKRNL control DM3310..3316: "
+    modem_log.debug("[assign] TIKRNL control DM3310..3316: "
           + " ".join(f"{adsp_dm[a]:04x}" for a in range(0x3310, 0x3317)))
-    print("[assign] host writes: "
+    modem_log.debug("[assign] host writes: "
           + " ".join(f"{addr:04x}={val:04x}"
                      for addr, val in shim.host_writes))
     if args.log:
         # Show the last PCs in the assign call to see which return path fired.
-        print("  assign trace tail:")
+        modem_log.debug("  assign trace tail:")
         for e in shim.recent_trace(24):
-            print(f"    {e}")
+            modem_log.debug(f"    {e}")
     # Read back the database record buffer (0x80331c12) to see what
     # db_record_append produced.
     buf = shim.uc.mem_read(0x00331c12, 0x80)
     nonzero = next((i for i, b in enumerate(buf) if b), None)
     if nonzero is not None:
-        print(f"  db buffer @0x80331c12 has data from offset {nonzero}: "
+        modem_log.debug(f"  db buffer @0x80331c12 has data from offset {nonzero}: "
               + " ".join(f"{b:02x}" for b in buf[:64]))
     else:
-        print("  db buffer @0x80331c12 is empty (db_record_append produced nothing)")
+        modem_log.debug("  db buffer @0x80331c12 is empty (db_record_append produced nothing)")
     if shim.log and shim.host_writes:
         for addr, val in shim.host_writes[:64]:
             tag = "DM" if addr & 0x4000 else "PM"
-            print(f"  host_write {tag} 0x{addr & 0x7fff:04x} = 0x{val:04x}")
+            modem_log.debug(f"  host_write {tag} 0x{addr & 0x7fff:04x} = 0x{val:04x}")
 
 
 def stage_dsp_code(shim: "MipsShim", args) -> int:
@@ -2356,7 +2358,7 @@ def stage_dsp_code(shim: "MipsShim", args) -> int:
     # The header field is read through the uncached image alias; write it via
     # the physical address the image was loaded at.
     shim.write32(BIAS + OFFS_DSP_CODE_BASE_ADDR, base)
-    print(f"[mainloop] DSP code staged at 0x{base:08x}..0x{image.end_addr:08x} "
+    modem_log.debug(f"[mainloop] DSP code staged at 0x{base:08x}..0x{image.end_addr:08x} "
           f"({len(image.data)} bytes, {len(image.downloads)} downloads, "
           f"card type {image.card_type} -> file set {image.file_set})")
     interesting_downloads = {
@@ -2376,7 +2378,7 @@ def stage_dsp_code(shim: "MipsShim", args) -> int:
     }
     for entry in image.downloads:
         if entry.download_id in interesting_downloads:
-            print(f"           id=0x{entry.download_id:04x} @0x{entry.address:08x} "
+            modem_log.debug(f"           id=0x{entry.download_id:04x} @0x{entry.address:08x} "
                   f"{entry.description}")
     return base
 
@@ -2420,16 +2422,16 @@ def report_dsp_boot(shim: "MipsShim", cycles: int = 200000) -> int:
             acked += 1
         elif shim.log:
             pm = ADSP.adsp2181_pm(core)
-            print(f"[dsp] block 0x{block:08x} no ack: "
+            modem_log.debug(f"[dsp] block 0x{block:08x} no ack: "
                   f"pm[0x{DSP_BOOT_MAILBOX:04x}]=0x{pm[DSP_BOOT_MAILBOX]:06x}")
-    print(f"[dsp] {len(shim.cores)} cores: {acked} answered the boot handshake "
+    modem_log.debug(f"[dsp] {len(shim.cores)} cores: {acked} answered the boot handshake "
           f"with 0x{DSP_BOOT_ACK:04x}, {held} still held (no download)")
     if held_blocks:
         # Session 98: a core that never gets a download fails the firmware's
         # own DSP test, and the failure releases a service entry from the
         # dispatch table at 0x8012227c. Name the blocks, because which one is
         # held decides which service goes away.
-        print("[dsp] held blocks: "
+        modem_log.debug("[dsp] held blocks: "
               + ", ".join(f"0x{block:08x}" for block in held_blocks))
     return acked
 
@@ -2659,7 +2661,7 @@ def run_until_rc(shim: "MipsShim", sr: int, gp: int, sp: int,
             shim.phase = phase
             shim.call(MIPS_MAINLOOP, [], gp=gp, sp=sp, max_insns=500000)
         except Exception as exc:
-            print(f"[mainloop] fault: {exc}")
+            modem_log.debug(f"[mainloop] fault: {exc}")
             break
         if shim.uc.mem_read(sr + PR_RcOutput, 1)[0]:
             break
@@ -2674,15 +2676,15 @@ def assign_entity(shim: "MipsShim", sr: int, gp: int, sp: int, label: str,
     """
     off = post_request(shim, sr, ASSIGN, req_id, req_ch, payload,
                        reference=1 if label == "nl" else 0)
-    print(f"[{label}] ASSIGN Id=0x{req_id:02x} Ch=0x{req_ch:02x} "
+    modem_log.debug(f"[{label}] ASSIGN Id=0x{req_id:02x} Ch=0x{req_ch:02x} "
           f"@B[0x{off:04x}] payload={payload.hex()}")
     codes = run_until_rc(shim, sr, gp, sp, phase=f"{label}-assign")
     if not codes:
-        print(f"[{label}] no return code")
+        modem_log.debug(f"[{label}] no return code")
         return None
     assigned = None
     for rc, rc_id, rc_ch, ref in codes:
-        print(f"[{label}] RC 0x{rc:02x} ({rc_name(rc)}) Id=0x{rc_id:02x} "
+        modem_log.debug(f"[{label}] RC 0x{rc:02x} ({rc_name(rc)}) Id=0x{rc_id:02x} "
               f"Ch=0x{rc_ch:02x} Ref=0x{ref:04x}")
         if rc == ASSIGN_OK and assigned is None:
             assigned = rc_id
@@ -2710,7 +2712,7 @@ def install_call_hooks(shim: "MipsShim", spec: str) -> None:
                                        UC_MIPS_REG_A2, UC_MIPS_REG_A3,
                                        UC_MIPS_REG_RA, UC_MIPS_REG_V0,
                                        UC_MIPS_REG_S4))
-        print(f"[hookcall] 0x{address:08x} #{counts[address]} "
+        modem_log.debug(f"[hookcall] 0x{address:08x} #{counts[address]} "
               f"a0=0x{a0:08x} a1=0x{a1:08x} a2=0x{a2:08x} a3=0x{a3:08x} "
               f"v0=0x{v0:08x} s4=0x{s4:08x} ra=0x{ra:08x} ({shim.phase})")
 
@@ -2722,7 +2724,7 @@ def install_call_hooks(shim: "MipsShim", spec: str) -> None:
         # though memory is mapped at the physical equivalents, so a code hook
         # wants the virtual address while a write hook reports physical ones.
         shim.uc.hook_add(UC_HOOK_CODE, on_call, begin=address, end=address)
-        print(f"[hookcall] hooking 0x{address:08x}")
+        modem_log.debug(f"[hookcall] hooking 0x{address:08x}")
 
 
 def install_mem_watch(shim: "MipsShim", spec: str) -> None:
@@ -2743,12 +2745,12 @@ def install_mem_watch(shim: "MipsShim", spec: str) -> None:
     def on_write(uc, access, address, size, value, user_data):
         pc = uc.reg_read(UC_MIPS_REG_PC)
         ra = uc.reg_read(UC_MIPS_REG_RA)
-        print(f"[memwatch] write {size}B = 0x{value:08x} to phys "
+        modem_log.debug(f"[memwatch] write {size}B = 0x{value:08x} to phys "
               f"0x{address:08x} from PC 0x{pc:08x} ra=0x{ra:08x} "
               f"({shim.phase})")
 
     shim.uc.hook_add(UC_HOOK_MEM_WRITE, on_write, begin=begin, end=end)
-    print(f"[memwatch] watching phys 0x{begin:08x}..0x{end:08x}")
+    modem_log.debug(f"[memwatch] watching phys 0x{begin:08x}..0x{end:08x}")
 
 
 def scan_ram(shim: "MipsShim", needle: bytes) -> None:
@@ -2767,7 +2769,7 @@ def scan_ram(shim: "MipsShim", needle: bytes) -> None:
         try:
             blob = bytes(shim.uc.mem_read(base, size))
         except Exception as exc:
-            print(f"[scan] {label}: unreadable ({exc})")
+            modem_log.debug(f"[scan] {label}: unreadable ({exc})")
             continue
         start = 0
         while True:
@@ -2777,9 +2779,9 @@ def scan_ram(shim: "MipsShim", needle: bytes) -> None:
             start = hit + 1
             total += 1
             context = blob[max(0, hit - 48):hit + len(needle) + 48]
-            print(f"[scan] {needle!r} at {label}+0x{hit:06x} "
+            modem_log.debug(f"[scan] {needle!r} at {label}+0x{hit:06x} "
                   f"(phys 0x{base + hit:08x}) context={context.hex()}")
-    print(f"[scan] {total} occurrence(s) of {needle!r}")
+    modem_log.debug(f"[scan] {total} occurrence(s) of {needle!r}")
 
 
 def make_call_control(shim: "MipsShim", sr: int, gp: int, sp: int,
@@ -2795,7 +2797,7 @@ def make_call_control(shim: "MipsShim", sr: int, gp: int, sp: int,
     def post(req, entity_id, channel, payload, reference):
         off = post_request(shim, sr, req, entity_id, channel, payload,
                            reference=reference)
-        print(f"[idi] REQ {eicon_idi.code_name(req, 'sig')} "
+        modem_log.debug(f"[idi] REQ {eicon_idi.code_name(req, 'sig')} "
               f"Id=0x{entity_id:02x} Ch=0x{channel:02x} @B[0x{off:04x}] "
               f"payload={payload.hex()}")
 
@@ -2826,10 +2828,10 @@ def issue_listen_request(shim: "MipsShim", sr: int, gp: int, sp: int,
     control.entities["sig"] = sig_id
     codes, indications = control.listen(legacy_req_id=legacy_req_id)
     for rc, rc_id, rc_ch, ref in codes:
-        print(f"[listen] RC 0x{rc:02x} ({rc_name(rc)}) Id=0x{rc_id:02x} "
+        modem_log.debug(f"[listen] RC 0x{rc:02x} ({rc_name(rc)}) Id=0x{rc_id:02x} "
               f"Ch=0x{rc_ch:02x} Ref=0x{ref:04x}")
     for indication in indications:
-        print(f"[listen] {indication}")
+        modem_log.debug(f"[listen] {indication}")
     return control
 
 
@@ -2841,7 +2843,7 @@ def read_runtime32(shim: "MipsShim", addr: int) -> int:
 def dump_entities(shim: "MipsShim", gp: int, limit: int = 16) -> None:
     count = struct.unpack_from("<H",
         shim.uc.mem_read((gp + 0x5eb9) & 0x1fffffff, 2))[0]
-    print(f"[entities] count={count} table=0x{ENTITY_TABLE:08x}")
+    modem_log.debug(f"[entities] count={count} table=0x{ENTITY_TABLE:08x}")
     for idx in range(min(count, limit)):
         ptr = read_runtime32(shim, ENTITY_TABLE + idx * 4)
         if ptr == 0:
@@ -2851,13 +2853,13 @@ def dump_entities(shim: "MipsShim", gp: int, limit: int = 16) -> None:
             words.append(read_runtime32(shim, ptr + off))
         formatted = " ".join(f"+{i * 4:02x}={word:08x}"
                              for i, word in enumerate(words))
-        print(f"[entities] {idx:02x}: ptr=0x{ptr:08x} {formatted}")
+        modem_log.debug(f"[entities] {idx:02x}: ptr=0x{ptr:08x} {formatted}")
         call = read_runtime32(shim, ptr + 0x1c)
         if call:
             sig_fields = bytes(shim.uc.mem_read((ptr + 0x340) & 0x1fffffff, 0x1f0))
             call_fields = bytes(shim.uc.mem_read(call & 0x1fffffff, 0x240))
-            print(f"[entities] {idx:02x}: sig+340..52f={sig_fields.hex()}")
-            print(f"[entities] {idx:02x}: call[0..23f]={call_fields.hex()}")
+            modem_log.debug(f"[entities] {idx:02x}: sig+340..52f={sig_fields.hex()}")
+            modem_log.debug(f"[entities] {idx:02x}: call[0..23f]={call_fields.hex()}")
 
 
 def inject_call_ingress(shim: "MipsShim", gp: int, sp: int,
@@ -2873,7 +2875,7 @@ def inject_call_ingress(shim: "MipsShim", gp: int, sp: int,
     """
     sig_obj = read_runtime32(shim, ENTITY_TABLE + slot * 4)
     if sig_obj == 0:
-        print(f"[ingress] no signalling object in slot {slot}")
+        modem_log.debug(f"[ingress] no signalling object in slot {slot}")
         return
 
     # IDI/Q.931 information elements consumed by the parser: 3.1-kHz audio
@@ -2903,7 +2905,7 @@ def inject_call_ingress(shim: "MipsShim", gp: int, sp: int,
     for event, label in ((0x17, "allocate"), (0x0b, "SETUP")):
         shim.write8(gp + 0x5e87, event)
         before = read_runtime32(shim, sig_obj + 0x1c)
-        print(f"[ingress] {label} event 0x{event:02x} on controller slot "
+        modem_log.debug(f"[ingress] {label} event 0x{event:02x} on controller slot "
               f"{slot} obj=0x{sig_obj:08x} entity=0x{entity_id:02x} "
               f"message=0x{message:08x} payload={payload.hex()} "
               f"before +1c=0x{before:08x}")
@@ -2912,11 +2914,11 @@ def inject_call_ingress(shim: "MipsShim", gp: int, sp: int,
             shim.call(CALL_INGRESS_PARSER, [sig_obj], gp=gp, sp=sp,
                       max_insns=2000000)
         except Exception as exc:
-            print(f"[ingress] firmware {label} parser stopped: {exc}")
+            modem_log.debug(f"[ingress] firmware {label} parser stopped: {exc}")
         after = read_runtime32(shim, sig_obj + 0x1c)
         state = (shim.uc.mem_read((after + 0x2c) & 0x1fffffff, 1)[0]
                  if after else 0)
-        print(f"[ingress] controller slot {slot} after {label}: "
+        modem_log.debug(f"[ingress] controller slot {slot} after {label}: "
               f"+1c=0x{after:08x} call_state=0x{state:02x}")
         if event == 0x17 and after:
             # The lower D-channel dispatcher advances the newly allocated
@@ -2947,11 +2949,11 @@ def inject_call_connect(shim: "MipsShim", gp: int, sp: int,
     """
     sig_obj = read_runtime32(shim, ENTITY_TABLE + slot * 4)
     if sig_obj == 0:
-        print(f"[connect] no signalling object in slot {slot}")
+        modem_log.debug(f"[connect] no signalling object in slot {slot}")
         return
     call_obj = read_runtime32(shim, sig_obj + 0x1c)
     if call_obj == 0:
-        print(f"[connect] slot {slot} has no call object at +0x1c; CALL_REQ "
+        modem_log.debug(f"[connect] slot {slot} has no call object at +0x1c; CALL_REQ "
               "did not allocate one, so there is nothing to connect")
         return
 
@@ -2971,7 +2973,7 @@ def inject_call_connect(shim: "MipsShim", gp: int, sp: int,
     shim.write8(gp + 0x5e87, event & 0xFF)
 
     state_before = shim.uc.mem_read((call_obj + 0x2c) & 0x1fffffff, 1)[0]
-    print(f"[connect] event 0x{event:02x} on slot {slot} obj=0x{sig_obj:08x} "
+    modem_log.debug(f"[connect] event 0x{event:02x} on slot {slot} obj=0x{sig_obj:08x} "
           f"call=0x{call_obj:08x} entity=0x{entity_id:02x} "
           f"call_state=0x{state_before:02x}")
     try:
@@ -2979,9 +2981,9 @@ def inject_call_connect(shim: "MipsShim", gp: int, sp: int,
         shim.call(CALL_INGRESS_PARSER, [sig_obj], gp=gp, sp=sp,
                   max_insns=2_000_000)
     except Exception as exc:
-        print(f"[connect] firmware CONNECT parser stopped: {exc}")
+        modem_log.debug(f"[connect] firmware CONNECT parser stopped: {exc}")
     state_after = shim.uc.mem_read((call_obj + 0x2c) & 0x1fffffff, 1)[0]
-    print(f"[connect] call_state 0x{state_before:02x} -> 0x{state_after:02x}")
+    modem_log.debug(f"[connect] call_state 0x{state_before:02x} -> 0x{state_after:02x}")
 
 
 def synthesize_call_ingress(shim: "MipsShim", slot: int = 0) -> None:
@@ -2994,7 +2996,7 @@ def synthesize_call_ingress(shim: "MipsShim", slot: int = 0) -> None:
     """
     sig_obj = read_runtime32(shim, ENTITY_TABLE + slot * 4)
     if sig_obj == 0:
-        print(f"[ingress] no entity object in slot {slot}")
+        modem_log.debug(f"[ingress] no entity object in slot {slot}")
         return
     call_obj = SYNTH_CALL_OBJECT + slot * 0x100
     shim.alloc(call_obj, 0x100)
@@ -3018,7 +3020,7 @@ def synthesize_call_ingress(shim: "MipsShim", slot: int = 0) -> None:
     shim.write_bytes(sig_obj + 0x395, bytes((1, 0x80)))
     shim.write8(sig_obj + 0x51f, 0xff)
     shim.write8(sig_obj + 0x520, 0x11)
-    print(f"[ingress] synthetic call object 0x{call_obj:08x} "
+    modem_log.debug(f"[ingress] synthetic call object 0x{call_obj:08x} "
           f"linked to entity slot {slot} obj=0x{sig_obj:08x}")
 
 
@@ -3074,18 +3076,18 @@ def run_mainloop(shim: "MipsShim", args) -> None:
     shim.write8(sr + 0xe0, 0)      # PCINIT_END_OF_LIST
     shim.write32(0x00, 3)          # boot->cmd = 3 (start)
     shim.write32(0x04, 0xa0011000) # boot->addr
-    print("[mainloop] card config + boot command written")
+    modem_log.debug("[mainloop] card config + boot command written")
 
     # 2. Call the firmware entry (0x80082f90) to store the PR_RAM pointer
     #    and run basic init.  It reaches a self-loop waiting for a hardware
     #    interrupt; the instruction count stops it there.  The PR_RAM
     #    pointer (gp+0x5e93) is now set.
-    print("[mainloop] running firmware entry (basic init)...")
+    modem_log.debug("[mainloop] running firmware entry (basic init)...")
     try:
         shim.phase = "entry"
         shim.call(MIPS_ENTRY, [], gp=gp, sp=sp, max_insns=5000000)
     except Exception as exc:
-        print(f"[mainloop] entry stopped at self-loop: {exc}")
+        modem_log.debug(f"[mainloop] entry stopped at self-loop: {exc}")
 
     # 3. The self-loop at 0x800830ec waits for a hardware interrupt.  In real
     #    hardware the host triggers this after writing config + boot command.
@@ -3095,24 +3097,24 @@ def run_mainloop(shim: "MipsShim", args) -> None:
     #    main loop separately.
     MIPS_POST_INIT1 = BIAS + 0x72d10   # 0x80083d10
     MIPS_POST_INIT2 = BIAS + 0x1a534   # 0x8002a534
-    print("[mainloop] running post-wait init functions...")
+    modem_log.debug("[mainloop] running post-wait init functions...")
     try:
         shim.phase = "post-init1"
         shim.call(MIPS_POST_INIT1, [], gp=gp, sp=sp, max_insns=2000000)
     except Exception as exc:
-        print(f"[mainloop] init1 fault: {exc}")
+        modem_log.debug(f"[mainloop] init1 fault: {exc}")
     try:
         shim.phase = "post-init2"
         shim.call(MIPS_POST_INIT2, [], gp=gp, sp=sp, max_insns=2000000)
     except Exception as exc:
-        print(f"[mainloop] init2 fault: {exc}")
+        modem_log.debug(f"[mainloop] init2 fault: {exc}")
 
     # Check if DSP resources were registered
     dsp_table = struct.unpack_from("<H",
         shim.uc.mem_read((gp + 0x5eb9) & 0x1fffffff, 2))[0]
     init_state = struct.unpack_from("<H",
         shim.uc.mem_read((gp + 0x5e81) & 0x1fffffff, 2))[0]
-    print(f"[mainloop] after init: gp+0x5e81={init_state:#06x} "
+    modem_log.debug(f"[mainloop] after init: gp+0x5e81={init_state:#06x} "
           f"gp+0x5eb9={dsp_table:#06x}")
     report_dsp_boot(shim)
 
@@ -3123,7 +3125,7 @@ def run_mainloop(shim: "MipsShim", args) -> None:
     #     add_modem_b23()).  Each ASSIGN is answered with an ASSIGN_RC
     #     carrying the local entity id the card allocated.
     sig = struct.unpack_from("<H", shim.uc.mem_read(sr + PR_Signature, 2))[0]
-    print(f"[mainloop] card ready: Sig=0x{sig:04x}")
+    modem_log.debug(f"[mainloop] card ready: Sig=0x{sig:04x}")
     # From this point onward report the whole call lifecycle. MipsShim.call()
     # normally resets this diagnostic per helper invocation, which made a
     # connected call incorrectly finish with "host_writes=0" whenever its
@@ -3141,10 +3143,10 @@ def run_mainloop(shim: "MipsShim", args) -> None:
         entity_id = assign_entity(shim, sr, gp, sp, label, req_id,
                                   args.channel, payload)
         if entity_id is None:
-            print(f"[{label}] assign did not succeed; stopping the sequence")
+            modem_log.debug(f"[{label}] assign did not succeed; stopping the sequence")
             break
         assigned[label] = entity_id
-        print(f"[{label}] entity id 0x{entity_id:02x} assigned "
+        modem_log.debug(f"[{label}] entity id 0x{entity_id:02x} assigned "
               f"(host_writes={len(shim.host_writes)})")
 
     defer_nl_assign = (
@@ -3161,10 +3163,10 @@ def run_mainloop(shim: "MipsShim", args) -> None:
         entity_id = assign_entity(shim, sr, gp, sp, "nl", NL_ID,
                                   args.channel, payload)
         if entity_id is None:
-            print("[nl] assign did not succeed; stopping the sequence")
+            modem_log.debug("[nl] assign did not succeed; stopping the sequence")
         else:
             assigned["nl"] = entity_id
-            print(f"[nl] entity id 0x{entity_id:02x} assigned "
+            modem_log.debug(f"[nl] entity id 0x{entity_id:02x} assigned "
                   f"(host_writes={len(shim.host_writes)})")
 
     call_channel = 0
@@ -3184,7 +3186,7 @@ def run_mainloop(shim: "MipsShim", args) -> None:
                                                   payload)
                 control.indications.append(indication)
                 control.observe(indication)
-                print(f"[ingress] {indication}")
+                modem_log.debug(f"[ingress] {indication}")
                 if ind == eicon_idi.CALL_IND:
                     call_channel = ind_ch
         if args.synthesize_call_ingress:
@@ -3200,10 +3202,10 @@ def run_mainloop(shim: "MipsShim", args) -> None:
         entity_id = assign_entity(shim, sr, gp, sp, "nl", NL_ID,
                                   args.channel, payload)
         if entity_id is None:
-            print("[nl] assign did not succeed after fake ingress")
+            modem_log.debug("[nl] assign did not succeed after fake ingress")
         else:
             assigned["nl"] = entity_id
-            print(f"[nl] entity id 0x{entity_id:02x} assigned after ingress "
+            modem_log.debug(f"[nl] entity id 0x{entity_id:02x} assigned after ingress "
                   f"(host_writes={len(shim.host_writes)})")
             if args.dump_entities:
                 dump_entities(shim, gp, args.dump_entity_limit)
@@ -3213,7 +3215,7 @@ def run_mainloop(shim: "MipsShim", args) -> None:
         # turns to publish CALL_IND.  Consume it before CALL_RES, matching the
         # real host ordering and releasing PR_RAM indication flow control.
         for ind, ind_id, ind_ch, ref, payload in drain_indications(shim, sr):
-            print(f"[ingress] IND 0x{ind:02x} Id=0x{ind_id:02x} "
+            modem_log.debug(f"[ingress] IND 0x{ind:02x} Id=0x{ind_id:02x} "
                   f"Ch=0x{ind_ch:02x} Ref=0x{ref:04x} "
                   f"payload={payload.hex()}")
             if ind == 0x02:
@@ -3232,12 +3234,12 @@ def run_mainloop(shim: "MipsShim", args) -> None:
                 options=modem_options())
             off = post_request(shim, sr, eicon_idi.CALL_REQ, assigned["sig"],
                                call_channel, call_payload, reference=0)
-            print(f"[call] CALL_REQ Id=0x{assigned['sig']:02x} "
+            modem_log.debug(f"[call] CALL_REQ Id=0x{assigned['sig']:02x} "
                   f"to {args.dial_number!r} @B[0x{off:04x}] "
                   f"payload={call_payload.hex()}")
             for rc, rc_id, rc_ch, ref in run_until_rc(shim, sr, gp, sp,
                                                       phase="call-req"):
-                print(f"[call] RC 0x{rc:02x} ({rc_name(rc)}) "
+                modem_log.debug(f"[call] RC 0x{rc:02x} ({rc_name(rc)}) "
                       f"Id=0x{rc_id:02x} Ch=0x{rc_ch:02x} Ref=0x{ref:04x}")
             for indication in [
                     eicon_idi.Indication(ind, ind_id, ind_ch, ref, payload)
@@ -3245,7 +3247,7 @@ def run_mainloop(shim: "MipsShim", args) -> None:
                     in drain_indications(shim, sr)]:
                 control.indications.append(indication)
                 control.observe(indication)
-                print(f"[call] {indication}")
+                modem_log.debug(f"[call] {indication}")
             if args.inject_call_ingress:
                 # There is no network to answer the SETUP this just sent, so
                 # the far end's CONNECT has to be delivered the same way the
@@ -3262,11 +3264,11 @@ def run_mainloop(shim: "MipsShim", args) -> None:
             call_payload = modem_call_res_payload()
             off = post_request(shim, sr, CALL_RES, assigned["sig"],
                                call_channel, call_payload, reference=0)
-            print(f"[call] CALL_RES Id=0x{assigned['sig']:02x} "
+            modem_log.debug(f"[call] CALL_RES Id=0x{assigned['sig']:02x} "
                   f"Ch=0x{call_channel:02x} @B[0x{off:04x}]")
             for rc, rc_id, rc_ch, ref in run_until_rc(shim, sr, gp, sp,
                                                       phase="call-res"):
-                print(f"[call] RC 0x{rc:02x} ({rc_name(rc)}) "
+                modem_log.debug(f"[call] RC 0x{rc:02x} ({rc_name(rc)}) "
                       f"Id=0x{rc_id:02x} Ch=0x{rc_ch:02x} Ref=0x{ref:04x}")
             if (args.inject_call_ingress and
                     getattr(args, "native_bearer_activation", False)):
@@ -3279,16 +3281,16 @@ def run_mainloop(shim: "MipsShim", args) -> None:
                 shim.phase = "call-ingress-connected"
                 shim.call(CALL_INGRESS_PARSER, [sig_obj], gp=gp, sp=sp,
                           max_insns=2_000_000)
-                print("[ingress] delivered post-CALL_RES event 0x03")
+                modem_log.debug("[ingress] delivered post-CALL_RES event 0x03")
             if args.dump_entities:
                 dump_entities(shim, gp, args.dump_entity_limit)
         off = post_request(shim, sr, N_CONNECT, assigned["nl"], 0,
                            b"\x00", reference=1)
-        print(f"[call] N_CONNECT Id=0x{assigned['nl']:02x} Ch=0x00 "
+        modem_log.debug(f"[call] N_CONNECT Id=0x{assigned['nl']:02x} Ch=0x00 "
               f"@B[0x{off:04x}]")
         for rc, rc_id, rc_ch, ref in run_until_rc(shim, sr, gp, sp,
                                                   phase="n-connect"):
-            print(f"[call] RC 0x{rc:02x} ({rc_name(rc)}) "
+            modem_log.debug(f"[call] RC 0x{rc:02x} ({rc_name(rc)}) "
                   f"Id=0x{rc_id:02x} Ch=0x{rc_ch:02x} Ref=0x{ref:04x}")
             # The media-plane N_DATA bridge may not submit bearer data before
             # the bearer exists, and this is the only place the N_CONNECT
@@ -3297,7 +3299,7 @@ def run_mainloop(shim: "MipsShim", args) -> None:
                     and rc in (eicon_idi.RC_OK, eicon_idi.OK_FC)):
                 shim.nl_connected = True
         if not getattr(shim, "nl_connected", False):
-            print("[call] N_CONNECT was not accepted; the N_DATA bridge stays "
+            modem_log.debug("[call] N_CONNECT was not accepted; the N_DATA bridge stays "
                   "closed for this call")
         if args.dump_entities:
             dump_entities(shim, gp, args.dump_entity_limit)
@@ -3307,7 +3309,7 @@ def run_mainloop(shim: "MipsShim", args) -> None:
             shim.phase = "call-pump"
             shim.call(MIPS_MAINLOOP, [], gp=gp, sp=sp, max_insns=500000)
             for ind, ind_id, ind_ch, ref, payload in drain_indications(shim, sr):
-                print(f"[call] IND 0x{ind:02x} Id=0x{ind_id:02x} "
+                modem_log.debug(f"[call] IND 0x{ind:02x} Id=0x{ind_id:02x} "
                       f"Ch=0x{ind_ch:02x} Ref=0x{ref:04x} "
                       f"payload={payload.hex()}")
                 if ind == 0x04:
@@ -3319,10 +3321,10 @@ def run_mainloop(shim: "MipsShim", args) -> None:
             bearer_state = "ACTIVE (modem DSP assigned)"
         else:
             bearer_state = "SIGNALLING ACTIVE, DSP UNASSIGNED"
-        print(f"[call] simulated B-channel: {bearer_state}")
+        modem_log.debug(f"[call] simulated B-channel: {bearer_state}")
 
     if assigned:
-        print("[mainloop] assigned: " +
+        modem_log.debug("[mainloop] assigned: " +
               ", ".join(f"{k}=0x{v:02x}" for k, v in assigned.items()))
     # Preserve the live IDI context for the media-plane N_DATA bridge.
     shim.idi_context = (sr, gp, sp)
@@ -3330,8 +3332,8 @@ def run_mainloop(shim: "MipsShim", args) -> None:
 
     if getattr(args, "scan_ram", None):
         scan_ram(shim, args.scan_ram.encode())
-    print(f"[mainloop] done: host_writes={len(shim.host_writes)}")
-    print("[mainloop] modem DSP path: service_assign=%d switch_on=%d"
+    modem_log.debug(f"[mainloop] done: host_writes={len(shim.host_writes)}")
+    modem_log.debug("[mainloop] modem DSP path: service_assign=%d switch_on=%d"
           % (shim.exec_counts.get(SERVICE_ASSIGN, 0),
              shim.exec_counts.get(SWITCH_ON, 0)))
     if shim.service_assign_block is not None:
@@ -3339,7 +3341,7 @@ def run_mainloop(shim: "MipsShim", args) -> None:
         core = shim.cores.get(block)
         if core is not None:
             dm = ADSP.adsp2181_dm(core)
-            print(f"[mainloop] native modem core block=0x{block:08x} "
+            modem_log.debug(f"[mainloop] native modem core block=0x{block:08x} "
                   f"ring=DM{dm[0x3316]:04x}..DM{dm[0x3315]:04x} "
                   f"page=0x{dm[0x3fb0]:04x} "
                   f"mode=0x{dm[0x3f94]:04x}")
@@ -3347,7 +3349,7 @@ def run_mainloop(shim: "MipsShim", args) -> None:
                 args.native_dm_out.parent.mkdir(parents=True, exist_ok=True)
                 args.native_dm_out.write_bytes(struct.pack(
                     "<16384H", *(dm[i] for i in range(0x4000))))
-                print(f"[mainloop] native modem DM snapshot: "
+                modem_log.debug(f"[mainloop] native modem DM snapshot: "
                       f"{args.native_dm_out}")
     if args.trace_calls:
         from collections import Counter, defaultdict
@@ -3356,7 +3358,7 @@ def run_mainloop(shim: "MipsShim", args) -> None:
             target = mips_runtime_addr(target)
             if BIAS <= target < BIAS + len(args.image.read_bytes()):
                 phases[phase][target] += 1
-        print("[trace] firmware call targets by phase:")
+        modem_log.debug("[trace] firmware call targets by phase:")
         marked = {SERVICE_ASSIGN, BIAS + 0x7FE58}
         for index, (phase, src, target) in enumerate(shim.call_trace):
             runtime_target = mips_runtime_addr(target)
@@ -3364,10 +3366,10 @@ def run_mainloop(shim: "MipsShim", args) -> None:
                 continue
             lo = max(0, index - 8)
             hi = min(len(shim.call_trace), index + 9)
-            print(f"[trace] ordered window around 0x{runtime_target:08x} "
+            modem_log.debug(f"[trace] ordered window around 0x{runtime_target:08x} "
                   f"in {phase}:")
             for item_phase, item_src, item_target in shim.call_trace[lo:hi]:
-                print(f"    [{item_phase}] 0x{mips_runtime_addr(item_src):08x} "
+                modem_log.debug(f"    [{item_phase}] 0x{mips_runtime_addr(item_src):08x} "
                       f"-> 0x{mips_runtime_addr(item_target):08x}")
         printed = False
         for phase in sorted(phases):
@@ -3375,23 +3377,23 @@ def run_mainloop(shim: "MipsShim", args) -> None:
             if not top:
                 continue
             printed = True
-            print(f"  [{phase}]")
+            modem_log.debug(f"  [{phase}]")
             for target, count in top:
                 mark = ""
                 if target == SERVICE_ASSIGN:
                     mark = " SERVICE_ASSIGN"
                 elif target == BIAS + 0x7fe58:
                     mark = " SWITCH_ON"
-                print(f"    0x{target:08x} count={count}{mark}")
+                modem_log.debug(f"    0x{target:08x} count={count}{mark}")
         if not printed:
             raw = Counter((phase, src, target) for phase, src, target in shim.call_trace)
-            print(f"  no file-backed targets decoded; raw_calls={sum(raw.values())}")
+            modem_log.debug(f"  no file-backed targets decoded; raw_calls={sum(raw.values())}")
             for (phase, src, target), count in raw.most_common(args.trace_call_limit):
-                print(f"    [{phase}] src=0x{src:08x} target=0x{target:08x} count={count}")
+                modem_log.debug(f"    [{phase}] src=0x{src:08x} target=0x{target:08x} count={count}")
     if shim.log and shim.host_writes:
         for addr, val in shim.host_writes[:32]:
             tag = "DM" if addr & 0x4000 else "PM"
-            print(f"  host_write {tag} 0x{addr & 0x7fff:04x} = 0x{val:04x}")
+            modem_log.debug(f"  host_write {tag} 0x{addr & 0x7fff:04x} = 0x{val:04x}")
 
 
 class NativeMipsModem:
@@ -3430,28 +3432,28 @@ class NativeMipsModem:
         self.pm = ADSP.adsp2181_pm(core)
         if CONTINUE_NON_IDLE_ALL:
             ADSP.adsp2181_continue_non_idle(core, 1)
-            print("[native-mips] per-frame continuation will be delivered to a "
+            modem_log.debug("[native-mips] per-frame continuation will be delivered to a "
                   "non-idle core on every page (EICON_CONTINUE_NON_IDLE=1)")
         for address in WATCH_PM:
             ADSP.adsp2181_watch_pm(core, address, 1)
         if WATCH_PM:
-            print("[native-mips] PM write watch on "
+            modem_log.debug("[native-mips] PM write watch on "
                   + ",".join(f"0x{a:04x}" for a in WATCH_PM))
         if WATCH_OVERLAY:
             # Disarmed until one of them loads, so nothing is spent before it.
             ADSP.adsp2181_watch_gate(core, 0)
-            print("[native-mips] watches gated to overlay(s) "
+            modem_log.debug("[native-mips] watches gated to overlay(s) "
                   + ",".join(f"0x{o:04x}" for o in WATCH_OVERLAY)
                   + "; disarmed until one is resident")
         for address, value in PIN_PM:
             ADSP.adsp2181_pin_pm(core, address, value, 1)
         if PIN_PM:
-            print("[native-mips] PM pinned: "
+            modem_log.debug("[native-mips] PM pinned: "
                   + ", ".join(f"0x{a:04x}=0x{v:06x}" for a, v in PIN_PM))
         for address, value in PIN_DM:
             ADSP.adsp2181_pin_dm(core, address, value, 1)
         if PIN_DM:
-            print("[native-mips] DM pinned: "
+            modem_log.debug("[native-mips] DM pinned: "
                   + ", ".join(f"0x{a:04x}=0x{v:04x}" for a, v in PIN_DM))
         self.law = law
         self.dsp_block = dsp_block
@@ -3505,7 +3507,7 @@ class NativeMipsModem:
             for address, value, page in FORCE_DM:
                 scope = (f"while overlay 0x{page:04x} is resident"
                          if page is not None else "on every page")
-                print(f"[force-dm] PATCHED FIRMWARE: DM(0x{address:04x}) held "
+                modem_log.debug(f"[force-dm] PATCHED FIRMWARE: DM(0x{address:04x}) held "
                       f"at 0x{value:04x} {scope}")
         self._private_line_active = False
         self.tx_prbs = tx_prbs
@@ -3670,7 +3672,7 @@ class NativeMipsModem:
         self._rx_trace = open(rx_trace, 'wb') if rx_trace else None
         if self._rx_trace is not None:
             self._rx_trace.write(b'ERXD0001')
-            print(f"[rx-trace] recording RXD datagrams to {rx_trace}")
+            modem_log.debug(f"[rx-trace] recording RXD datagrams to {rx_trace}")
         self._nl_gate_reported = False
         # LAPM produces at line rate whether or not NL is accepting, so the
         # bridge needs elasticity between the two.  This is the transmit
@@ -3704,7 +3706,7 @@ class NativeMipsModem:
                      for offset, _ in TIKRNL_TXD_STORE_SIGNATURE]
         for address in addresses:
             self.pm[address] = 0x000000
-        print("[native-mips] host owns synchronous TX mailbox; suppressed "
+        modem_log.debug("[native-mips] host owns synchronous TX mailbox; suppressed "
               "TIKRNL stores at PM " + "/".join(
                   f"{address:04x}" for address in addresses))
 
@@ -3753,7 +3755,7 @@ class NativeMipsModem:
             return False
         if not self._nl_gate_reported:
             self._nl_gate_reported = True
-            print(f"[nl] bearer open for N_DATA: Id=0x{self.nl_entity_id:02x} "
+            modem_log.debug(f"[nl] bearer open for N_DATA: Id=0x{self.nl_entity_id:02x} "
                   f"DATASTATE=0x{self.dm[0x3FC2]:04x}")
         return True
 
@@ -3809,7 +3811,7 @@ class NativeMipsModem:
         self._nl_busy = True
         self._nl_posted += 1
         self._nl_tx_octets += len(payload)
-        print(f"[nl] {'N_UDATA' if request == eicon_idi.N_UDATA else 'N_DATA'} submitted off=0x{off:04x} len={len(payload)} "
+        modem_log.debug(f"[nl] {'N_UDATA' if request == eicon_idi.N_UDATA else 'N_DATA'} submitted off=0x{off:04x} len={len(payload)} "
               f"Id=0x{self.nl_entity_id:02x} ref={self._nl_reference}")
 
     def _nl_return_code(self, rc: int, rc_id: int, rc_ch: int,
@@ -3836,7 +3838,7 @@ class NativeMipsModem:
             self._nl_busy = False
             self._nl_fc = False
             self._nl_rejected += 1
-            print(f"[nl] N_DATA rejected: RC=0x{rc:02x} ({rc_name(rc)}) "
+            modem_log.debug(f"[nl] N_DATA rejected: RC=0x{rc:02x} ({rc_name(rc)}) "
                   f"Id=0x{rc_id:02x} Ch=0x{rc_ch:02x} ref={rc_ref}")
 
     def _sport_rx_word(self, code: int) -> int:
@@ -3846,7 +3848,7 @@ class NativeMipsModem:
     def start_native_task(self) -> None:
         """Release the assigned core and run TIKRNL's relocated initializer."""
         if self.dsp_block in self.shim.native_task_started:
-            print("[native-mips] TIKRNL initialized before native SWITCH_ON")
+            modem_log.debug("[native-mips] TIKRNL initialized before native SWITCH_ON")
             return
         if ADSP.adsp2181_idma_boot_held(self.cpu):
             ADSP.adsp2181_set_idma_boot_hold(self.cpu, 0)
@@ -3857,7 +3859,7 @@ class NativeMipsModem:
                 f"native TIKRNL initializer stopped at PM "
                 f"0x{ADSP.adsp2181_pc(self.cpu):04x}")
         self.shim.native_task_started.add(self.dsp_block)
-        print("[native-mips] released assigned DSP and initialized TIKRNL")
+        modem_log.debug("[native-mips] released assigned DSP and initialized TIKRNL")
 
     def load_native_overlay(self, download_id: int) -> None:
         """Run the firmware's real segmented/relocating ADSP loader."""
@@ -3906,7 +3908,7 @@ class NativeMipsModem:
         if WATCH_OVERLAY:
             armed = self.resident in WATCH_OVERLAY
             ADSP.adsp2181_watch_gate(self.cpu, 1 if armed else 0)
-            print(f"[watch-gate] {'armed' if armed else 'disarmed'}: resident "
+            modem_log.debug(f"[watch-gate] {'armed' if armed else 'disarmed'}: resident "
                   f"0x{self.resident:04x}, watching "
                   + ",".join(f"0x{o:04x}" for o in WATCH_OVERLAY)
                   + f" [cyc={ADSP.adsp2181_cycles(self.cpu)}]")
@@ -3921,7 +3923,7 @@ class NativeMipsModem:
             # but a page that is never replaced would then never be dumped,
             # and the failing case is exactly the one that stalls.
             self._write_pm_dump()
-        print(f"[native-mips] loaded 0x{download_id:04x} through MIPS "
+        modem_log.debug(f"[native-mips] loaded 0x{download_id:04x} through MIPS "
               f"({len(self.shim.host_writes) - before} host writes) "
               f"[cyc={ADSP.adsp2181_cycles(self.cpu)}]")
 
@@ -3936,7 +3938,7 @@ class NativeMipsModem:
         on = self.resident in CONTINUE_NON_IDLE_PAGES
         ADSP.adsp2181_continue_non_idle(self.cpu, 1 if on else 0)
         if on:
-            print(f"[native-mips] non-idle continuation armed for page "
+            modem_log.debug(f"[native-mips] non-idle continuation armed for page "
                   f"0x{self.resident:04x}")
 
     def _duplicate_partial_blocks(self, partial_id: int,
@@ -3999,7 +4001,7 @@ class NativeMipsModem:
         if download_id not in self.download_descriptors:
             if download_id not in self._unserved_page_requests:
                 self._unserved_page_requests.add(download_id)
-                print(f"[native-mips] partial overlay 0x{download_id:04x} is "
+                modem_log.debug(f"[native-mips] partial overlay 0x{download_id:04x} is "
                       f"not staged; page 0x{self.resident:04x} will wait for "
                       "it forever")
             return False
@@ -4027,7 +4029,7 @@ class NativeMipsModem:
         # and the template lands on top of the running page's own values.
         partial_blocks = self.dm_blocks.get(download_id) or {}
         base_blocks = self.dm_blocks.get(underlying) or {}
-        print(f"[native-mips] partial 0x{download_id:04x}: "
+        modem_log.debug(f"[native-mips] partial 0x{download_id:04x}: "
               f"{len(partial_blocks)} DM blocks, base 0x{underlying:04x} has "
               f"{len(base_blocks)} recorded; holding back "
               + (",".join(f"0x{a:04x}({w})" for a, w in duplicated)
@@ -4049,7 +4051,7 @@ class NativeMipsModem:
             duplicated = tuple(
                 (address, len(values)) for address, values
                 in (self.dm_blocks.get(underlying) or {}).items())
-            print(f"[native-mips] partial 0x{download_id:04x} served as a "
+            modem_log.debug(f"[native-mips] partial 0x{download_id:04x} served as a "
                   f"reload of the base page 0x{underlying:04x} with all "
                   f"{len(duplicated)} DM blocks held back "
                   "(EICON_PARTIAL_EMPTY)")
@@ -4082,7 +4084,7 @@ class NativeMipsModem:
             before = getattr(self, "_partial_bootpage_before", None)
             if before is not None:
                 self.dm[0x3FB0] = before
-        print(f"[native-mips] partial overlay 0x{download_id:04x} applied to "
+        modem_log.debug(f"[native-mips] partial overlay 0x{download_id:04x} applied to "
               f"0x{underlying:04x} at sample {self._media_samples}, resumed at "
               f"PM 0x{resume:04x}")
         return True
@@ -4149,7 +4151,7 @@ class NativeMipsModem:
             if WDB_OVERRIDE:
                 # Diagnostic only; empty by default. See WDB_OVERRIDE.
                 final.update(WDB_OVERRIDE)
-                print("[native-mips] WDB override on native transaction: " +
+                modem_log.debug("[native-mips] WDB override on native transaction: " +
                       " ".join(f"+0x{offset:02x}=0x{value:04x}"
                                for offset, value in sorted(
                                    WDB_OVERRIDE.items())))
@@ -4184,7 +4186,7 @@ class NativeMipsModem:
                 break
         if self.dm[0x3EEE] & 0x2000:
             raise RuntimeError("native TIKRNL did not consume answer WDB")
-        print("[native-mips] connected bearer activated through DIAL "
+        modem_log.debug("[native-mips] connected bearer activated through DIAL "
               f"(WDB frames {initial_frames}+{answer_frames})")
         # The WDB being consumed is not the same event as the card reaching
         # V.8, and answering on the wrong page is not survivable. Left here,
@@ -4212,15 +4214,15 @@ class NativeMipsModem:
                     break
                 self._frame_core(self.silence)
             if self.resident != 0x025F:
-                print("[native-mips] WARNING: still on overlay "
+                modem_log.warning("[native-mips] WARNING: still on overlay "
                       f"0x{self.resident:04x} after {settle} settling frames; "
                       "answering on a page other than V.8 does not work")
             else:
-                print(f"[native-mips] V.8 resident after {settle} settling "
+                modem_log.debug(f"[native-mips] V.8 resident after {settle} settling "
                       f"frames ({settle / 8000.0:.3f} s of silence before "
                       "media)")
         else:
-            print("[native-mips] originate side: skipping the answer-side "
+            modem_log.debug("[native-mips] originate side: skipping the answer-side "
                   "page-settling loop (it cannot reach V.8 before media)")
 
     def complete_native_answer(self) -> None:
@@ -4269,7 +4271,7 @@ class NativeMipsModem:
                     f"request: resident=0x{self.resident:04x} "
                     f"wanted=0x{self.dm[0x3132]:04x} "
                     f"request={self.dm[0x3131]:04x}")
-            print(f"[native-mips] SPORT pre-media page settle: "
+            modem_log.debug(f"[native-mips] SPORT pre-media page settle: "
                   f"{setup_frames} frame(s), resident=0x{self.resident:04x}")
 
     def _prbs_bits(self, count: int) -> list[int]:
@@ -4346,7 +4348,7 @@ class NativeMipsModem:
             # else is a word from another page or a training-era transient.
             if bits is not None and 2 <= bits <= 6:
                 if bits != self._lec_datagram_bits_seen:
-                    print(f"[v42] V.32 rate from DATASTATESpeed "
+                    modem_log.debug(f"[v42] V.32 rate from DATASTATESpeed "
                           f"0x{int(self.dm[0x3F62]):04x}: {bits * 2400} bit/s, "
                           f"{bits} bits/datagram"
                           + ("" if self._lec_datagram_bits_seen is None else
@@ -4500,11 +4502,11 @@ class NativeMipsModem:
                     ('V.32' if (self.dm[0x3FB0] & 0xFFFF) == V32_BOOTPAGE
                      else 'V.22bis') if self.resident == V22_OVERLAY
                     else 'V.34')
-                print(f"[v42] {modulation} synchronous data state: TX {count} "
+                modem_log.debug(f"[v42] {modulation} synchronous data state: TX {count} "
                       f"bits/datagram, RX {self._rx_datagram_bits() or '?'} "
                       "bits/datagram")
                 if self.resident == 0x026A:
-                    print("[v90] negotiated rates: downstream "
+                    modem_log.debug("[v90] negotiated rates: downstream "
                           f"{self.negotiated_downstream_bps or '?'} bit/s, "
                           f"upstream {self.negotiated_upstream_bps or '?'} "
                           "bit/s (ADDSP read DB 0x81/0x82)")
@@ -4533,7 +4535,7 @@ class NativeMipsModem:
                 if len(self._nl_tx_bits) > NL_TX_ELASTIC_BITS:
                     dropped = len(self._nl_tx_bits) - NL_TX_ELASTIC_BITS
                     del self._nl_tx_bits[:dropped]
-                    print(f"[nl] transmit elastic store overflowed; dropped "
+                    modem_log.debug(f"[nl] transmit elastic store overflowed; dropped "
                           f"{dropped // 8} octets (NL is not draining)")
                 bits = [1] * count
             elif TX_PATTERN_BITS is not None:
@@ -4647,7 +4649,7 @@ class NativeMipsModem:
                 self._bulk_seed_candidate_frames = 1
             if self._bulk_seed_candidate_frames >= BULK_SEED_YIELD_FRAMES:
                 self._bulk_seed_yielded_to = published
-                print("[native-mips] firmware published its own bulk delay "
+                modem_log.debug("[native-mips] firmware published its own bulk delay "
                       f"lengths near={published[0]} far={published[1]}; "
                       "the host seed stands down")
             return
@@ -4661,7 +4663,7 @@ class NativeMipsModem:
                       if BULK_DELAY_MEASURED else "floor only")
             extra = (f", {BULK_DELAY_EXTRA_PAIRS:+d} pairs tuning"
                      if BULK_DELAY_EXTRA_PAIRS else "")
-            print(f"[native-mips] seeded echo bulk delay for "
+            modem_log.debug(f"[native-mips] seeded echo bulk delay for "
                   f"0x{self.resident:04x}: near={near} far={far} sample pairs "
                   f"({near / 8:.1f}/{far / 8:.1f} ms), {source}, "
                   f"delaycorrection={int(self.dm[0x3F04])}{extra}")
@@ -4688,7 +4690,7 @@ class NativeMipsModem:
         # sentinel while selecting the PCMU magnitudes.
         self.dm[0x1F14] = 8
         if not getattr(self, "_v90d_pcmu_table_installed", False):
-            print("[native-mips] installed selected PCMU Ucode table "
+            modem_log.debug("[native-mips] installed selected PCMU Ucode table "
                   "at DM(0x1f14..0x1f93)")
             self._v90d_pcmu_table_installed = True
 
@@ -4781,14 +4783,14 @@ class NativeMipsModem:
                         and count == encoded_count
                         and 21 <= count <= 42
                         and count not in V90D_QUALIFIED_BULK_WIDTHS):
-                    print("[native-mips] bulk adapter remains held: V90D "
+                    modem_log.debug("[native-mips] bulk adapter remains held: V90D "
                           f"width {count} is not hardware-qualified")
             return
         rate, count = parameters
         ADSP.adsp2181_pm(self.cpu)[0x19C8] = self._bulk_adapter_opcode
         self._bulk_adapter_held = False
         self._bulk_adapter_waiting_on = None
-        print(f"[native-mips] bulk adapter released: DATASTATEspeedTx="
+        modem_log.debug(f"[native-mips] bulk adapter released: DATASTATEspeedTx="
               f"0x{rate:04x}, DM(0x1E4F)={count} bits/datagram")
 
     def _service_negotiated_rates(self) -> None:
@@ -4814,7 +4816,7 @@ class NativeMipsModem:
                 self.dm[0x3F9B] = speed_number
                 self.dm[0x204E] = datagram_parameter
                 if not getattr(self, "_v90d_preserved_handoff_logged", False):
-                    print("[v90] preserved exact upstream selection through "
+                    modem_log.debug("[v90] preserved exact upstream selection through "
                           f"final quality fallback: 0x{upstream_word:04x} "
                           f"({v34_rate(upstream_word)} bit/s), "
                           f"speed-number={speed_number}, "
@@ -4841,7 +4843,7 @@ class NativeMipsModem:
                     except (IndexError, KeyError):
                         return 0
 
-                print("[v90] upstream rate word "
+                modem_log.debug("[v90] upstream rate word "
                       f"{previous if previous is not None else 0:04x}->"
                       f"{upstream_word:04x} at sample "
                       f"{getattr(self, '_media_samples', 0)}: "
@@ -4867,7 +4869,7 @@ class NativeMipsModem:
         if (upstream_word == 0x11E0
                 and v90_downstream_rate(int(self.dm[0x3F61])) is not None
                 and not getattr(self, "_v90d_no_common_rate_logged", False)):
-            print("[v90] no-common upstream handoff: "
+            modem_log.debug("[v90] no-common upstream handoff: "
                   f"rate-mask=0x{int(self.dm[0x1E3F]):04x}, "
                   f"allowed-mask=0x{int(self.dm[0x210B]):04x}, "
                   f"limit={int(self.dm[0x20BA])}, "
@@ -4882,7 +4884,7 @@ class NativeMipsModem:
                 old_ceiling = int(self.dm[0x20BA])
                 self.dm[0x20BA] = ceiling_floor
                 if not getattr(self, "_v90d_ceiling_floor_logged", False):
-                    print("[v90] raised transient quality ceiling for exact "
+                    modem_log.debug("[v90] raised transient quality ceiling for exact "
                           f"upstream offer: {old_ceiling}->{ceiling_floor}, "
                           f"rate-mask=0x{int(self.dm[0x1E3F]):04x}")
                     self._v90d_ceiling_floor_logged = True
@@ -4974,7 +4976,7 @@ class NativeMipsModem:
             self._tx_words_pending = None
         if self.tx_first_sample is None:
             self.tx_first_sample = self._media_samples
-            print(f"[native-mips] supplied first synchronous TX datagram at sample "
+            modem_log.debug(f"[native-mips] supplied first synchronous TX datagram at sample "
                   f"{self._media_samples}: "
                   f"{words[0]:04x}/{words[1]:04x}/{words[2]:04x}")
 
@@ -4985,7 +4987,7 @@ class NativeMipsModem:
         self._media_samples += 1
         if (self._media_samples == 1
                 and os.environ.get("EICON_SPORT_SLOT_TRACE")):
-            print("[sport-slot] " + " ".join(
+            modem_log.debug("[sport-slot] " + " ".join(
                 [*(f"DM({address:04x})={int(self.dm[address]):04x}"
                    for address in (0x2E44, 0x2E45, 0x2E50, 0x2E52)),
                  *(f"PM({address:04x})={int(self.pm[address]):06x}"
@@ -5032,7 +5034,7 @@ class NativeMipsModem:
                 and self.resident in ORIGINATE_PAGE_GATE_PAGES
                 and self.dm[0x3811]):
             if not self._originate_page_gate_logged:
-                print(f"[native-mips] originate frame gate DM(0x3811)="
+                modem_log.debug(f"[native-mips] originate frame gate DM(0x3811)="
                       f"0x{int(self.dm[0x3811]):04x} on page "
                       f"0x{self.resident:04x} with DM(0x3883) bit 5 "
                       f"clear; clearing it at sample {self._media_samples} "
@@ -5045,7 +5047,7 @@ class NativeMipsModem:
             # Pin it high and NOP the scan tail (PM 0x3a36) so it cannot zero
             # the pin before the gate's single read.
             if not self._originate_parked_logged:
-                print(f"[native-mips] originate first gate (DM(03EF)=0x35d7) "
+                modem_log.debug(f"[native-mips] originate first gate (DM(03EF)=0x35d7) "
                       f"pending; pinning DM(0x0554)=0x20 and NOPing PM 0x3a36 "
                       f"from sample {self._media_samples} "
                       f"(EICON_ORIGINATE_LINE_READY)")
@@ -5060,7 +5062,7 @@ class NativeMipsModem:
             # DM(03EF)=0x35ed, so stop pinning, restore the scan, and let it
             # zero 0554 so the second gate reads 0 and continues to 0x35fa.
             if self._originate_parked_logged and self._originate_saved_3a36 is not None:
-                print(f"[native-mips] originate second gate (DM(03EF)=0x35ed) "
+                modem_log.debug(f"[native-mips] originate second gate (DM(03EF)=0x35ed) "
                       f"pending at sample {self._media_samples}; "
                       f"un-pinning 0554 and restoring PM 0x3a36 so the scan "
                       f"zeroes 0554 (the second gate needs 0554 == 0)")
@@ -5071,7 +5073,7 @@ class NativeMipsModem:
                 and self._originate_parked_logged
                 and not self._originate_advanced_logged
                 and self.dm[0x3FC2] > 0x0002):
-            print(f"[native-mips] originate side left the dial-page park -> "
+            modem_log.debug(f"[native-mips] originate side left the dial-page park -> "
                   f"TrnProgress 0x{self.dm[0x3FC2]:04x} at sample "
                   f"{self._media_samples}")
             if self._originate_saved_3a36 is not None:
@@ -5127,11 +5129,11 @@ class NativeMipsModem:
                 source = ("native WDB" if native
                           else "no native WDB; documented default")
             if norm_l is None:
-                print(f"[native-mips] originate NORM_L DM(0x3F09) left at "
+                modem_log.debug(f"[native-mips] originate NORM_L DM(0x3F09) left at "
                       f"0x{was_norm_l:04x} (EICON_ORIGINATE_NORM_L empty)")
             else:
                 self.dm[0x3EE0 + 0x29] = norm_l
-                print(f"[native-mips] originate NORM_L DM(0x3F09) "
+                modem_log.debug(f"[native-mips] originate NORM_L DM(0x3F09) "
                       f"0x{was_norm_l:04x} -> 0x{norm_l:04x} ({source})")
             self._originate_v8_requested = True
             if ORIGINATE_V8_KERNEL:
@@ -5144,7 +5146,7 @@ class NativeMipsModem:
                 # rest is only its argument.
                 self.dm[0x0491] = 6
                 self.dm[0x3FC1] |= 0x0100
-                print(f"[native-mips] originate side at TrnProgress "
+                modem_log.debug(f"[native-mips] originate side at TrnProgress "
                       f"0x{self.dm[0x3FC2]:04x} on SIG overlay without a V.8 "
                       f"request; publishing DM(0491)=6 DM(3FB0)=6 and leaving "
                       f"the request to the kernel at sample "
@@ -5152,7 +5154,7 @@ class NativeMipsModem:
             else:
                 self.dm[0x3131] = 0x0001
                 self.dm[0x3132] = 0x025F
-                print(f"[native-mips] originate side at TrnProgress "
+                modem_log.debug(f"[native-mips] originate side at TrnProgress "
                       f"0x{self.dm[0x3FC2]:04x} on SIG overlay without a V.8 "
                       f"request; writing DM(3131)=1 DM(3132)=0x025f to load "
                       f"V.8 at sample {self._media_samples} "
@@ -5176,7 +5178,7 @@ class NativeMipsModem:
             if value:
                 self.dm[0x3F89] = value
                 if not self._originate_v34_info_logged:
-                    print(f"[native-mips] originate V.34: INFO published "
+                    modem_log.debug(f"[native-mips] originate V.34: INFO published "
                           f"DM(3F89)=0; pinning it to 0x{value:02x} at sample "
                           f"{self._media_samples} (EICON_ORIGINATE_V34_INFO)")
                     self._originate_v34_info_logged = True
@@ -5214,7 +5216,7 @@ class NativeMipsModem:
             self.pm[address] = value
             key = (address, overlay)
             if key not in self._patch_pm_logged:
-                print(f"[patch-pm] PATCHED FIRMWARE: PM 0x{address:04x} "
+                modem_log.debug(f"[patch-pm] PATCHED FIRMWARE: PM 0x{address:04x} "
                       f"0x{old:06x} -> 0x{value:06x} while overlay "
                       f"0x{overlay:04x} is resident")
                 self._patch_pm_logged.add(key)
@@ -5242,7 +5244,7 @@ class NativeMipsModem:
                 tracing = self._media_samples in TRACE_FRAMES
                 if tracing:
                     ADSP.adsp2181_trace_budget(self.cpu, TRACE_BUDGET)
-                    print(f"[trace] frame {self._media_samples} armed for "
+                    modem_log.debug(f"[trace] frame {self._media_samples} armed for "
                           f"{TRACE_BUDGET} instructions "
                           f"[cyc={ADSP.adsp2181_cycles(self.cpu)}]")
                 try:
@@ -5252,7 +5254,7 @@ class NativeMipsModem:
                 finally:
                     if tracing:
                         ADSP.adsp2181_trace_budget(self.cpu, 0)
-                        print(f"[trace] frame {self._media_samples} ended "
+                        modem_log.debug(f"[trace] frame {self._media_samples} ended "
                               f"[cyc={ADSP.adsp2181_cycles(self.cpu)}]")
                 if (EXECUTION_MODEL != "sport"
                         and ADSP.adsp2181_idle(self.cpu)):
@@ -5357,7 +5359,7 @@ class NativeMipsModem:
                     # belongs to -- the whole point is comparing one frame
                     # against its neighbours.
                     ADSP.adsp2181_trace_budget(self.cpu, TRACE_BUDGET)
-                    print(f"[trace] frame {self._media_samples} armed for "
+                    modem_log.debug(f"[trace] frame {self._media_samples} armed for "
                           f"{TRACE_BUDGET} instructions "
                           f"[cyc={ADSP.adsp2181_cycles(self.cpu)}]")
                 try:
@@ -5369,7 +5371,7 @@ class NativeMipsModem:
                 finally:
                     if tracing:
                         ADSP.adsp2181_trace_budget(self.cpu, 0)
-                        print(f"[trace] frame {self._media_samples} ended "
+                        modem_log.debug(f"[trace] frame {self._media_samples} ended "
                               f"[cyc={ADSP.adsp2181_cycles(self.cpu)}]")
                     if publish_paced:
                         if not ADSP.adsp2181_stop_dm_hit(self.cpu):
@@ -5393,7 +5395,7 @@ class NativeMipsModem:
             self.dm[0x3FB0] = 7
             self.dm[0x3132] = wanted
             self.forced_info_samples.append(self._media_samples)
-            print(f"[native-mips] diagnostic post-V.8 fallback -> INFO "
+            modem_log.debug(f"[native-mips] diagnostic post-V.8 fallback -> INFO "
                   f"at sample {self._media_samples}")
         page_ready = bool(self.dm[0x3FC1] & 0x0100)
         if (self.native_bearer_activation and self.dm[0x3137]
@@ -5408,7 +5410,7 @@ class NativeMipsModem:
             # sentinels, which on the originate side landed in the middle of
             # ANSam detection. Acknowledge it and leave the page alone.
             if not self._same_page_request_logged:
-                print(f"[native-mips] page request for the resident page "
+                modem_log.debug(f"[native-mips] page request for the resident page "
                       f"0x{wanted:04x} at sample {self._media_samples}; "
                       f"acknowledged without re-entering it")
                 self._same_page_request_logged = True
@@ -5433,7 +5435,7 @@ class NativeMipsModem:
                     # gates; V90D additionally stays held until its rate block
                     # is coherent below.
                     bulk_limit = publish_bulk_lower_limit(self.dm)
-                    print("[native-mips] published bulk descriptor lower "
+                    modem_log.debug("[native-mips] published bulk descriptor lower "
                           f"limit DM(0x{bulk_limit:04x})=0xffff for "
                           f"0x{wanted:04x}")
                     # Descriptor words 0..7 as the shared worker reads them.
@@ -5442,7 +5444,7 @@ class NativeMipsModem:
                     # AY1 is what PM 0x1919/0x1923/0x1927 add on underflow, so
                     # a zero there is a ring pointer that cannot wrap.
                     _base = int(self.dm[0x32F7]) & 0x3FFF
-                    print(f"[native-mips] bulk descriptor @DM(0x{_base:04x}): "
+                    modem_log.debug(f"[native-mips] bulk descriptor @DM(0x{_base:04x}): "
                           + ' '.join(f'[{k}]={int(self.dm[(_base + k) & 0x3FFF]):04x}'
                                      for k in range(8)))
                     # The seed and any stand-down decision belong to one
@@ -5468,7 +5470,7 @@ class NativeMipsModem:
                     pm_words = ADSP.adsp2181_pm(self.cpu)
                     self._v90d_saved_clear = pm_words[0x06CD]
                     pm_words[0x06CD] = 0x000000
-                    print("[native-mips] diagnostic: suppressed per-frame "
+                    modem_log.debug("[native-mips] diagnostic: suppressed per-frame "
                           "clear of the V90D mapping-frame block")
                 elif (self._v90d_saved_clear is not None
                       and previous in (0x026A, 0x0261)):
@@ -5483,7 +5485,7 @@ class NativeMipsModem:
                     # per-frame clear of DM(0x3fa7..0x3fac) never ran.
                     self.pm[0x06CD] = self._v90d_saved_clear
                     self._v90d_saved_clear = None
-                    print("[native-mips] restored the per-frame clear of the "
+                    modem_log.debug("[native-mips] restored the per-frame clear of the "
                           f"V90D mapping-frame block leaving 0x{previous:04x}")
                 if (wanted == 0x0261
                         and (V34_BULK_HOLD or V34_PORTABLE_BULK)):
@@ -5493,7 +5495,7 @@ class NativeMipsModem:
                     pm[0x19C8] = 0x0A000F        # RTS
                     self._portable_bulk_delay.reset()
                     self._portable_bulk_active = False
-                    print("[native-mips] V.34 bulk worker held: PM 0x19c8 "
+                    modem_log.debug("[native-mips] V.34 bulk worker held: PM 0x19c8 "
                           f"RTSed (was 0x{self._v34_bulk_opcode:06x}) "
                           f"for 0x{wanted:04x}"
                           + ("; portable bounded delay selected"
@@ -5517,10 +5519,10 @@ class NativeMipsModem:
                     self._portable_bulk_delay.reset()
                     self._portable_bulk_active = False
                     if V90D_PORTABLE_BULK:
-                        print("[native-mips] native bulk adapter held; portable "
+                        modem_log.debug("[native-mips] native bulk adapter held; portable "
                               f"bounded delay selected for 0x{wanted:04x}")
                     else:
-                        print("[native-mips] bulk adapter held until the rate is "
+                        modem_log.debug("[native-mips] bulk adapter held until the rate is "
                               f"published for 0x{wanted:04x}")
                 if (wanted == 0x026A
                         and V90D_BULK_ADAPTER_DISABLED):
@@ -5532,7 +5534,7 @@ class NativeMipsModem:
                     # EICON_V90D_BULK_ADAPTER=1 keeps the adapter running.
                     #
                     ADSP.adsp2181_pm(self.cpu)[0x19C8] = 0x0A000F
-                    print("[native-mips] diagnostic: disabled the bulk "
+                    modem_log.debug("[native-mips] diagnostic: disabled the bulk "
                           f"adapter for 0x{wanted:04x}")
                 self.switches.append(
                     (self._media_samples, self.dm[0x3FB0], wanted))
@@ -5552,11 +5554,11 @@ class NativeMipsModem:
                     self.load_native_overlay(partial_id)
                     self.resident = wanted
                     self._partial_overlay_served = partial_id
-                    print(f"[native-mips] staged partial 0x{partial_id:04x} "
+                    modem_log.debug(f"[native-mips] staged partial 0x{partial_id:04x} "
                           f"with page 0x{wanted:04x} before its init "
                           "(EICON_PARTIAL_PRELOAD)")
                 else:
-                    print(f"[native-mips] partial 0x{partial_id:04x} is not "
+                    modem_log.debug(f"[native-mips] partial 0x{partial_id:04x} is not "
                           "staged; EICON_PARTIAL_PRELOAD ignored")
             self.dm[0x3EEE] = 0x1000
             resume = self.dm[0x3143] & 0x3FFF
@@ -5629,9 +5631,9 @@ class NativeMipsModem:
             self.dm[0x3131] = 0x0000
             if wanted in PAGE_BOOTREQ:
                 self.dm[0x3FC1] |= 0x0100
-                print(f"[native-mips] left Rstatus boot_request set for "
+                modem_log.debug(f"[native-mips] left Rstatus boot_request set for "
                       f"0x{wanted:04x}'s first frame (EICON_PAGE_BOOTREQ)")
-            print(f"[native-mips] page request 0x{wanted:04x} "
+            modem_log.debug(f"[native-mips] page request 0x{wanted:04x} "
                   f"(from 0x{previous:04x}) resumed at PM 0x{resume:04x}")
         elif self.dm[0x3131]:
             # A request nobody serves used to be silent, and a page waiting on
@@ -5643,7 +5645,7 @@ class NativeMipsModem:
                       else "page not ready" if not page_ready else "?")
             if wanted not in self._unserved_page_requests:
                 self._unserved_page_requests.add(wanted)
-                print(f"[native-mips] page request 0x{wanted:04x} unserved "
+                modem_log.debug(f"[native-mips] page request 0x{wanted:04x} unserved "
                       f"({reason}) at sample {self._media_samples}, resident "
                       f"0x{self.resident:04x} bootpage 0x{self.dm[0x3FB0]:04x}")
         # Diagnostic seam: PM 0x1982 preserves the far-bulk cursor in DM4,
@@ -5655,7 +5657,7 @@ class NativeMipsModem:
                 and self.resident == 0x026A and self.dm[0x1FF7] == 0x0060):
             self.dm[4] = self.dm[0]
             self._v90d_bulk_cursor_primed = True
-            print(f"[native-mips] diagnostic V90D bulk cursor DM4 "
+            modem_log.debug(f"[native-mips] diagnostic V90D bulk cursor DM4 "
                   f"primed to DM0=0x{self.dm[0]:04x}")
         if self.resident == 0x026A:
             # The page initializer runs after the load callback and can replace
@@ -5704,7 +5706,7 @@ class NativeMipsModem:
                     0x31F4: 0x0260,
                 }.items():
                     self.dm[address] = value
-                print("[native-mips] restored V.90 TX-length table "
+                modem_log.debug("[native-mips] restored V.90 TX-length table "
                       "DM31EE..31F4")
             self.shim.phase = "native-sip"
             self.shim.call(MIPS_MAINLOOP, [], gp=GP, sp=STACK_TOP,
@@ -5767,7 +5769,7 @@ class NativeMipsModem:
                             # no N_DATA indication at all -- so this switch is
                             # reported when it first happens.
                             self._nl_rx_seen = True
-                            print("[nl] first N_DATA indication: receive "
+                            modem_log.debug("[nl] first N_DATA indication: receive "
                                   "switched from the DSP mailbox to NL")
                         # Low-order bit first, matching the transmit packing.
                         self.lapm.feed([((value >> bit) & 1)
@@ -5776,18 +5778,18 @@ class NativeMipsModem:
                         self._nl_rx_octets += len(payload)
                     continue
                 if ind not in (N_CONNECT, 3):
-                    print(f"[native-mips] IND 0x{ind:02x} "
+                    modem_log.debug(f"[native-mips] IND 0x{ind:02x} "
                           f"Id=0x{ind_id:02x} Ch=0x{ind_ch:02x} "
                           f"Ref=0x{ref:04x} payload={payload.hex()}")
             for rc, rc_id, rc_ch, rc_ref in drain_return_codes(
                     self.shim, PR_RAM_PHYS):
                 self._nl_return_code(rc, rc_id, rc_ch, rc_ref)
                 if self.nl_data_mode or rc_id == self.nl_entity_id:
-                    print(f"[nl] RC=0x{rc:02x} ({rc_name(rc)}) "
+                    modem_log.debug(f"[nl] RC=0x{rc:02x} ({rc_name(rc)}) "
                           f"id=0x{rc_id:02x} ch=0x{rc_ch:02x} ref={rc_ref}")
         except Exception as exc:
             if not self._mips_fault_reported:
-                print(f"[native-mips] runtime supervisor stopped: {exc}")
+                modem_log.debug(f"[native-mips] runtime supervisor stopped: {exc}")
                 self._mips_fault_reported = True
 
     def _apply_force_dm(self) -> None:
@@ -5807,7 +5809,7 @@ class NativeMipsModem:
                         # Proof the patch is live. A force that never
                         # overwrites anything is a null experiment that reads
                         # exactly like a negative result.
-                        print(f"[force-dm] first overwrite: DM(0x{address:04x}) "
+                        modem_log.debug(f"[force-dm] first overwrite: DM(0x{address:04x}) "
                               f"0x{self.dm[address]:04x} -> 0x{value:04x} at "
                               f"sample {self._media_samples}")
                 self.dm[address] = value
@@ -5833,7 +5835,7 @@ class NativeMipsModem:
                 word = pm[address] & 0xFFFFFF
                 handle.write(f"0x{address:04x},0x{word:06x},"
                              f"0x{(word >> 8) & 0xFFFF:04x}\n")
-        print(f"[pm-dump] PM 0x{lo:04x}..0x{hi:04x} (resident overlay "
+        modem_log.debug(f"[pm-dump] PM 0x{lo:04x}..0x{hi:04x} (resident overlay "
               f"0x{self.resident:04x}) -> {target}")
 
     def _write_dm_dump(self) -> None:
@@ -5848,7 +5850,7 @@ class NativeMipsModem:
             handle.write("address,word\n")
             for address in range(lo, hi):
                 handle.write(f"0x{address:04x},0x{self.dm[address] & 0xFFFF:04x}\n")
-        print(f"[dm-dump] DM 0x{lo:04x}..0x{hi:04x} (resident overlay "
+        modem_log.debug(f"[dm-dump] DM 0x{lo:04x}..0x{hi:04x} (resident overlay "
               f"0x{self.resident:04x}) -> {target}")
 
     def _record_setup_trace(self, frame: int) -> None:
@@ -5888,7 +5890,7 @@ class NativeMipsModem:
             handle.write(fields + "\n")
             for row in self._setup_trace:
                 handle.write(",".join(str(value) for value in row) + "\n")
-        print(f"[setup-trace] {len(self._setup_trace)} frames -> {target}")
+        modem_log.debug(f"[setup-trace] {len(self._setup_trace)} frames -> {target}")
 
     def _write_exec_history(self) -> None:
         """Write the bounded C-core SPORT execution history.
@@ -5922,7 +5924,7 @@ class NativeMipsModem:
         with target.open("w") as handle:
             handle.write(payload)
         digest = hashlib.sha256(payload.encode("ascii")).hexdigest()
-        print(f"[exec-history] {len(self._exec_history)} bounded frames -> "
+        modem_log.debug(f"[exec-history] {len(self._exec_history)} bounded frames -> "
               f"{target}; sha256:{digest}")
 
     def _write_pcsp_trace(self) -> None:
@@ -5937,7 +5939,7 @@ class NativeMipsModem:
             for sample, cycle, resident, lo, hi in self._pcsp_rows:
                 handle.write(f"{sample},{cycle},0x{resident:04x},{lo},{hi}\n")
         floors = [lo for _, _, _, lo, _ in self._pcsp_rows]
-        print(f"[pcsp] {len(self._pcsp_rows)} frames -> {PCSP_TRACE}"
+        modem_log.debug(f"[pcsp] {len(self._pcsp_rows)} frames -> {PCSP_TRACE}"
               + (f"; per-frame floor {min(floors)}..{max(floors)}, "
                  f"peak {max(hi for *_, hi in self._pcsp_rows)}"
                  if floors else ""))
@@ -5953,7 +5955,7 @@ class NativeMipsModem:
         for address, value in PIN_PM:
             hits = ADSP.adsp2181_pin_pm_hits(self.cpu, address)
             note = "" if hits else "  <-- never fired, this A/B tested nothing"
-            print(f"[pin-pm] PM 0x{address:04x} held at 0x{value:06x}: "
+            modem_log.debug(f"[pin-pm] PM 0x{address:04x} held at 0x{value:06x}: "
                   f"{hits} stores undone{note}")
     def _report_pin_dm(self) -> None:
         """Say how often each DM pin actually undid a store.
@@ -5965,7 +5967,7 @@ class NativeMipsModem:
         """
         for address, value in PIN_DM:
             hits = ADSP.adsp2181_pin_dm_hits(self.cpu, address)
-            print(f"[pin-dm] DM(0x{address:04x}) held at 0x{value:04x}: "
+            modem_log.debug(f"[pin-dm] DM(0x{address:04x}) held at 0x{value:04x}: "
                   f"{hits} store(s) undone"
                   + ("   <- pin never fired, the A/B tested nothing"
                      if not hits else ""))
@@ -5990,11 +5992,11 @@ class NativeMipsModem:
             handle.write("address,writes,per_sample\n")
             for address, count, rate in rows:
                 handle.write(f"0x{address:04x},{count},{rate:.6f}\n")
-        print(f"[dm-census] {len(rows)} written addresses over "
+        modem_log.debug(f"[dm-census] {len(rows)} written addresses over "
               f"{self._dm_census_samples} page-8 samples -> {path}")
         for address in PM_COVERAGE:
             count = ADSP.adsp2181_coverage_count(self.cpu, address)
-            print(f"[pm-coverage] PM 0x{address:04x}: {count} executions "
+            modem_log.debug(f"[pm-coverage] PM 0x{address:04x}: {count} executions "
                   f"({count / self._dm_census_samples:.4f} per page-8 sample)")
 
     def warm_up(self, passes: int | None = None) -> None:
@@ -6024,7 +6026,7 @@ class NativeMipsModem:
         if not self._media_started:
             self._media_started = True
             if ADSP_MEDIA_CYCLES != self.adsp_budget:
-                print(f"[native-mips] media instruction cadence: "
+                modem_log.debug(f"[native-mips] media instruction cadence: "
                       f"{ADSP_MEDIA_CYCLES} cycles/sample "
                       f"(setup allowance {self.adsp_budget})")
         if EXEC_HISTORY and not self._exec_history_census_armed:
@@ -6097,7 +6099,7 @@ class NativeMipsModem:
                     and getattr(self, '_v90d_seen_data_state', False)):
                 self._v90d_successful_recovery_words = (
                     int(self.dm[0x20BA]), int(self.dm[0x210B]))
-                print("[v90] retained successful recovery offer: "
+                modem_log.debug("[v90] retained successful recovery offer: "
                       f"limit {self.dm[0x20BA]}, mask 0x{self.dm[0x210B]:04x}")
             self._v90d_recovery_state = state
             recovery = self.resident == 0x026A and state == 0x00C2
@@ -6118,14 +6120,14 @@ class NativeMipsModem:
                 suffix = f", mask 0x{mask:04x}" if mask is not None else ""
                 source = ("held successful" if V90D_RECOVERY_LIMIT is None
                           else "fixed")
-                print(f"[v90] {source} recovery limit pinned at {value}{suffix} "
+                modem_log.debug(f"[v90] {source} recovery limit pinned at {value}{suffix} "
                       "in state 0x00c2")
             elif armed and not recovery:
                 ADSP.adsp2181_pin_dm(self.cpu, 0x20BA, 0, 0)
                 if selected is not None and selected[1] is not None:
                     ADSP.adsp2181_pin_dm(self.cpu, 0x210B, 0, 0)
                 self._v90d_recovery_limit_armed = False
-                print("[v90] recovery limit released")
+                modem_log.debug("[v90] recovery limit released")
         if (sample_index + 1) % self.mips_interval == 0:
             self._step_mips()
             # The V.90 task has an initialization/fill path that can write
@@ -6156,7 +6158,7 @@ class NativeMipsModem:
                         and self._v90d_generator_idle == 12):
                     for address in range(0x3FA7, 0x3FAD):
                         self.dm[address] = 0
-                    print("[native-mips] V90D generator idle for two mapping "
+                    modem_log.debug("[native-mips] V90D generator idle for two mapping "
                           f"frames at sample {self._media_samples}; cleared the "
                           "held block (state "
                           f"0x{self.dm[0x1FF7]:04x})")
@@ -6257,7 +6259,7 @@ class NativeMipsModem:
         scaled = sample if abs(sample) == 2 else sample * 4
         if not self._tx_scale_logged:
             self._tx_scale_logged = True
-            print(f"[v90] page 14 transmit expanded to PCM16 scale at sample "
+            modem_log.debug(f"[v90] page 14 transmit expanded to PCM16 scale at sample "
                   f"{self._media_samples}: DM(3FB4)={sample} -> {scaled} "
                   f"(EICON_V90D_TX_SPORT_SCALE=0 to restore x1)")
         return scaled
@@ -6348,7 +6350,7 @@ def create_native_mips_modem(kernel: Path, tikrnl: Path, law: str = "pcmu",
         "tikrnl": _sha256_file(tikrnl),
         "dsp_combifile": _sha256_file(dsp_combifile),
     }
-    print("[oracle] image hashes " + " ".join(
+    modem_log.debug("[oracle] image hashes " + " ".join(
         f"{name}=sha256:{value}" for name, value in image_hashes.items()))
     if IMAGE_HASHES:
         target = Path(IMAGE_HASHES)
@@ -6356,7 +6358,7 @@ def create_native_mips_modem(kernel: Path, tikrnl: Path, law: str = "pcmu",
         target.write_text(json.dumps(image_hashes, indent=2, sort_keys=True) + "\n")
     if not ISR_VECTOR_PATCH:
         # Loud, because it is off the path every archived capture was taken on.
-        print("[native-mips] EICON_ISR_VECTOR_PATCH=0: PM 0x00B5 left alone; "
+        modem_log.debug("[native-mips] EICON_ISR_VECTOR_PATCH=0: PM 0x00B5 left alone; "
               "the firmware's own SPORT vector dispatches")
     cpu = ADSP.adsp2181_create()
     ADSP.adsp2181_reset(cpu)
@@ -6390,7 +6392,7 @@ def create_native_mips_modem(kernel: Path, tikrnl: Path, law: str = "pcmu",
     core = shim.cores.get(block) if block is not None else None
     if core is None:
         raise RuntimeError("native incoming call did not assign a modem DSP core")
-    print(f"[native-mips] SIP media attached to DSP block 0x{block:08x} "
+    modem_log.debug(f"[native-mips] SIP media attached to DSP block 0x{block:08x} "
           f"using {law}")
     modem = NativeMipsModem(
         shim, core, law, block, descriptors, staged_dm_blocks,
@@ -6403,11 +6405,11 @@ def create_native_mips_modem(kernel: Path, tikrnl: Path, law: str = "pcmu",
         originate_line_ready=originate_line_ready,
         originate_v8=originate_v8,
         modem_role=modem_role or MODEM_ROLE)
-    print(f"[native-mips] modulation role: {modem.modem_role} "
+    modem_log.debug(f"[native-mips] modulation role: {modem.modem_role} "
           f"(GEN_SETUP1=0x{GEN_SETUP1_ROLE[modem.modem_role]:04x})")
     if (modem.modem_role == "calling"
             and not modem.originate_line_ready):
-        print("[native-mips] originate-side line-ready pin is OFF "
+        modem_log.debug("[native-mips] originate-side line-ready pin is OFF "
               "(EICON_ORIGINATE_LINE_READY=0): the calling side will park "
               "at the dial page and transmit nothing (Sessions 95-96)")
     # Before the bearer is attached, so the supervisor polls this costs are
@@ -6423,7 +6425,7 @@ def create_native_mips_modem(kernel: Path, tikrnl: Path, law: str = "pcmu",
         # relocation after the connected-task command has run.
         ADSP.adsp2181_set_idma_boot_hold(core, 0)
         modem.complete_native_answer()
-        print("[native-mips] using native lower-PRI task attachment with "
+        modem_log.debug("[native-mips] using native lower-PRI task attachment with "
               "ADDSP answer WDB completion")
     if FAX_MODE:
         # Diva's fax1Up() emits these two N_UDATA requests as soon as the
@@ -6440,7 +6442,7 @@ def create_native_mips_modem(kernel: Path, tikrnl: Path, law: str = "pcmu",
                      else eicon_idi.class1_v25_answer_start())
         if not modem.queue_n_udata(v25_start):
             raise RuntimeError("could not queue Class 1 V.25 fax start")
-        print("[native-mips] queued Class 1 "
+        modem_log.debug("[native-mips] queued Class 1 "
               f"{'V.34 fax setup + ' if v34fax else ''}V.25 "
               f"{'receive' if modem.modem_role == 'calling' else 'answer transmit'} start")
     else:
@@ -6654,10 +6656,10 @@ def probe_direct_tikrnl_g711(cpu, samples: int, code: int,
                 if resume:
                     ADSP.adsp2181_call(cpu, resume, 0x02A8)
                     ADSP.adsp2181_run(cpu, 100000)
-                print(f"[g711] served requested overlay 0x{wanted:04x} "
+                modem_log.debug(f"[g711] served requested overlay 0x{wanted:04x} "
                       f"from {module.name}")
             else:
-                print(f"[g711] requested overlay 0x{wanted:04x}, "
+                modem_log.debug(f"[g711] requested overlay 0x{wanted:04x}, "
                       "but no extracted image is available")
         if bridge_tx:
             if restore_pcm_pointers:
@@ -6686,7 +6688,7 @@ def probe_direct_tikrnl_g711(cpu, samples: int, code: int,
         if now != prev:
             changes += 1
             if changes <= 12:
-                print(f"[g711] sample {index:04d}: "
+                modem_log.debug(f"[g711] sample {index:04d}: "
                       f"3F08={now[0]:04x} 3F09={now[1]:04x} "
                       f"3FB0={now[2]:04x} 3FB2={now[3]:04x} "
                       f"3FB3={now[4]:04x} 3FC1={now[5]:04x} "
@@ -6700,13 +6702,13 @@ def probe_direct_tikrnl_g711(cpu, samples: int, code: int,
     else:
         source_desc = (f"{stimulus_kind} {stimulus_freq:g}Hz "
                        f"amp={stimulus_amp}")
-    print(f"[g711] fed {samples} {source_desc}; line-state changes={changes}")
+    modem_log.debug(f"[g711] fed {samples} {source_desc}; line-state changes={changes}")
     if page_tx_seen:
         from collections import Counter
         sample_counts = Counter(page_tx_samples)
         queue_min = min(page_tx_counts) if page_tx_counts else 0
         queue_max = max(page_tx_counts) if page_tx_counts else 0
-        print("[g711] V.22FC page TX adapter DM3764: "
+        modem_log.debug("[g711] V.22FC page TX adapter DM3764: "
               f"frames={len(page_tx_samples)} "
               f"nonzero={sum(value != 0 for value in page_tx_samples)} "
               f"queue-count={queue_min}..{queue_max} "
@@ -6719,14 +6721,14 @@ def probe_direct_tikrnl_g711(cpu, samples: int, code: int,
         counts = Counter(bridged_words)
         non_idle = sum(value not in (0x0000, 0x00ff, 0x0400)
                        for value in bridged_words)
-        print(f"[g711] bridged task TX DM[3FB4]->DM{DM_TDM_OUTPUT_LATCH:04x}: "
+        modem_log.debug(f"[g711] bridged task TX DM[3FB4]->DM{DM_TDM_OUTPUT_LATCH:04x}: "
               f"words={len(bridged_words)} unique={len(counts)} non_idle={non_idle} "
               f"top={','.join(f'{value:04x}:{count}' for value, count in counts.most_common(8))} "
               f"first16={' '.join(f'{value:04x}' for value in bridged_words[:16])}")
         bridge_counts = Counter(bridge_tx_words)
         bridge_non_idle = sum(value not in (0x0000, 0x00ff, 0x0400)
                               for value in bridge_tx_words)
-        print(f"[g711] SPORT0 TX0 bridged captures: words={len(bridge_tx_words)} "
+        modem_log.debug(f"[g711] SPORT0 TX0 bridged captures: words={len(bridge_tx_words)} "
               f"unique={len(bridge_counts)} non_idle={bridge_non_idle} "
               f"top={','.join(f'{value:04x}:{count}' for value, count in bridge_counts.most_common(8))} "
               f"first16={' '.join(f'{value:04x}' for value in bridge_tx_words[:16])}")
@@ -6735,7 +6737,7 @@ def probe_direct_tikrnl_g711(cpu, samples: int, code: int,
         counts = Counter(natural_tx_words)
         non_idle = sum(value not in (0x0000, 0x00ff, 0x0400)
                        for value in natural_tx_words)
-        print(f"[g711] SPORT0 TX0 natural captures: words={len(natural_tx_words)} "
+        modem_log.debug(f"[g711] SPORT0 TX0 natural captures: words={len(natural_tx_words)} "
               f"unique={len(counts)} non_idle={non_idle} "
               f"top={','.join(f'{value:04x}:{count}' for value, count in counts.most_common(8))} "
               f"first16={' '.join(f'{value:04x}' for value in natural_tx_words[:16])}")
@@ -6744,12 +6746,12 @@ def probe_direct_tikrnl_g711(cpu, samples: int, code: int,
         counts = Counter(tx_words)
         non_idle = sum(value not in (0x0000, 0x00ff, 0x0400)
                        for value in tx_words)
-        print(f"[g711] SPORT0 TX0 captured: words={len(tx_words)} "
+        modem_log.debug(f"[g711] SPORT0 TX0 captured: words={len(tx_words)} "
               f"unique={len(counts)} non_idle={non_idle} "
               f"top={','.join(f'{value:04x}:{count}' for value, count in counts.most_common(8))} "
               f"first16={' '.join(f'{value:04x}' for value in tx_words[:16])}")
     else:
-        print("[g711] SPORT0 TX0 captured: words=0")
+        modem_log.debug("[g711] SPORT0 TX0 captured: words=0")
 
 
 def scan_direct_tikrnl_tx_source(cpu, marker: int = 0x0055,
@@ -6804,7 +6806,7 @@ def scan_direct_tikrnl_tx_source(cpu, marker: int = 0x0055,
         dm[addr] = saved
         if tx_words and tx_words[-1] == (marker & 0xFFFF):
             hits.append(("tx", addr, tx_words[-1]))
-    print("[txscan] marker 0x%04x source hits: %s" % (
+    modem_log.debug("[txscan] marker 0x%04x source hits: %s" % (
         marker & 0xFFFF,
         " ".join(f"{irq}:DM{addr:04x}->{value:04x}"
                  for irq, addr, value in hits)
@@ -6838,17 +6840,17 @@ def force_direct_tikrnl_tx(cpu, samples: int, code: int,
         from collections import Counter
         counts = Counter(tx_words)
         forced = sum(value == (code & 0xFFFF) for value in tx_words)
-        print(f"[force-tx] source DM{source & 0x3fff:04x}=0x{code & 0xffff:04x}: "
+        modem_log.debug(f"[force-tx] source DM{source & 0x3fff:04x}=0x{code & 0xffff:04x}: "
               f"captured={len(tx_words)} forced={forced} "
               f"top={','.join(f'{value:04x}:{count}' for value, count in counts.most_common(8))} "
               f"first16={' '.join(f'{value:04x}' for value in tx_words[:16])}")
     else:
-        print(f"[force-tx] source DM{source & 0x3fff:04x}: captured=0")
+        modem_log.debug(f"[force-tx] source DM{source & 0x3fff:04x}: captured=0")
 
 
 def force_modem_dsp_assign(shim: "MipsShim", args) -> None:
     """Force the recovered TIKRNL service assignment during fake call setup."""
-    print("[force] staging direct TIKRNL core for modem DSP assignment")
+    modem_log.debug("[force] staging direct TIKRNL core for modem DSP assignment")
     forced_cpu = stage_direct_tikrnl_core(args)
     old_cpu = shim.cpu
     old_multi = shim.multi_dsp
@@ -6858,7 +6860,7 @@ def force_modem_dsp_assign(shim: "MipsShim", args) -> None:
         run_assign(shim, args)
         pump_direct_tikrnl_core(forced_cpu, args.words)
         dm = ADSP.adsp2181_dm(forced_cpu)
-        print("[force] after TIKRNL pump: DM3310..3316 "
+        modem_log.debug("[force] after TIKRNL pump: DM3310..3316 "
               + " ".join(f"{dm[a]:04x}" for a in range(0x3310, 0x3317))
               + " DM3327..3336 "
               + " ".join(f"{dm[a]:04x}" for a in range(0x3327, 0x3337)))
@@ -7091,7 +7093,7 @@ def main() -> int:
         # half-replaced image and corrupt the transfer (the download's own
         # read-back verify catches it).
         ADSP.adsp2181_set_idma_boot_hold(cpu, 1)
-        print("[adsp] held in IDMA boot mode; firmware downloads the kernel")
+        modem_log.debug("[adsp] held in IDMA boot mode; firmware downloads the kernel")
     else:
         load_pm_words(cpu, args.kernel / "pm.bin")
         load_dm_words(cpu, args.kernel / "dm.bin")
@@ -7107,7 +7109,7 @@ def main() -> int:
             dm[int(a, 16)] = int(v, 16)
         ADSP.adsp2181_call(cpu, 0x672, 0x02A8)
         ADSP.adsp2181_run(cpu, 1000000)
-        print(f"[adsp] staged: idle={ADSP.adsp2181_idle(cpu)}")
+        modem_log.debug(f"[adsp] staged: idle={ADSP.adsp2181_idle(cpu)}")
 
     shim = MipsShim(args.image, cpu, log=args.log)
     shim.trace_calls = args.trace_calls
@@ -7153,7 +7155,7 @@ def main() -> int:
     v0 = shim.call(REQUEST_PARSER, [req, RAM_VIRT + 0x3000],
                    gp=GP, sp=STACK_TOP)
     if args.log:
-        print(f"[mips] parser -> {v0:#x}")
+        modem_log.debug(f"[mips] parser -> {v0:#x}")
     if v0:
         shim.call(SCRIPT_SENDER, [req, RAM_VIRT + 0x3000],
                   gp=GP, sp=STACK_TOP)
@@ -7194,17 +7196,17 @@ def main() -> int:
     # Host-port reads need the 0x4000 data-memory select; a bare address
     # selects program memory (see symbol_host_address).
     dm_sel = 0x4000
-    print(f"[adsp] selector DM3310={ADSP.adsp2181_host_read(cpu, dm_sel | 0x3310):04x}"
+    modem_log.debug(f"[adsp] selector DM3310={ADSP.adsp2181_host_read(cpu, dm_sel | 0x3310):04x}"
           f" producer DM3315={ADSP.adsp2181_host_read(cpu, dm_sel | 0x3315):04x}"
           f" consumer DM3316={ADSP.adsp2181_host_read(cpu, dm_sel | 0x3316):04x}"
           f" resp DM3338={ADSP.adsp2181_host_read(cpu, dm_sel | 0x3338):04x}")
     # dump the channel table and free-list to see if the descriptor got hooked
     dm = ADSP.adsp2181_dm(cpu)
-    print("[adsp] channel table: 2E44=%04x 2E45=%04x  queue 2F08=%04x 2F09=%04x"
+    modem_log.debug("[adsp] channel table: 2E44=%04x 2E45=%04x  queue 2F08=%04x 2F09=%04x"
           % (dm[0x2E44], dm[0x2E45], dm[0x2F08], dm[0x2F09]))
-    print("[adsp] free-list 2F27=%04x 2F28=%04x" % (dm[0x2F27], dm[0x2F28]))
-    print("[adsp] DM 2E00-2E10: " + " ".join("%04x" % dm[a] for a in range(0x2E00, 0x2E11)))
-    print("[adsp] DM 2F00-2F10: " + " ".join("%04x" % dm[a] for a in range(0x2F00, 0x2F11)))
+    modem_log.debug("[adsp] free-list 2F27=%04x 2F28=%04x" % (dm[0x2F27], dm[0x2F28]))
+    modem_log.debug("[adsp] DM 2E00-2E10: " + " ".join("%04x" % dm[a] for a in range(0x2E00, 0x2E11)))
+    modem_log.debug("[adsp] DM 2F00-2F10: " + " ".join("%04x" % dm[a] for a in range(0x2F00, 0x2F11)))
     return 0
 
 

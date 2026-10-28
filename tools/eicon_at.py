@@ -176,8 +176,9 @@ class AtParser:
     instead, unless the escape sequence fires.
     """
 
-    def __init__(self, clock=time.monotonic) -> None:
+    def __init__(self, clock=time.monotonic, event_logger=None) -> None:
         self.clock = clock
+        self.event_logger = event_logger
         self.registers = Registers()
         self.mode = Mode.COMMAND
         self.actions: "list[AtAction]" = []
@@ -213,6 +214,10 @@ class AtParser:
         self._escape_last = 0.0
         self._last_data = 0.0
         self.load_profile(DEFAULT_PROFILE)
+
+    def _log_event(self, event: str, **fields) -> None:
+        if self.event_logger is not None:
+            self.event_logger(event, **fields)
 
     # -- configuration ----------------------------------------------------
     def load_profile(self, profile: "int | None" = None) -> None:
@@ -421,12 +426,14 @@ class AtParser:
     # -- result codes -----------------------------------------------------
     def respond(self, code: str) -> bytes:
         """Format one result code, honouring ATQ, ATV and ATX."""
-        if self.quiet:
-            return b""
         numeric, text = RESULT_CODES[code]
         if self.progress == 0 and code in ("BUSY", "NO DIALTONE", "NO ANSWER"):
             # ATX0 reports only the minimum: a call that failed is NO CARRIER.
             numeric, text = RESULT_CODES["NO CARRIER"]
+        self._log_event('result', result=text, suppressed=self.quiet,
+                        numeric=not self.verbose)
+        if self.quiet:
+            return b""
         return self._format(str(numeric) if not self.verbose else text)
 
     def _format(self, text: str) -> bytes:
@@ -450,6 +457,9 @@ class AtParser:
                   carrier: str = "", protocol: str = "",
                   compression: str = "") -> bytes:
         """Report a connection.  ATX and AT\\V pick how much detail."""
+        self._log_event('CONNECT', tx_bps=tx_speed, rx_bps=rx_speed,
+                        modulation=carrier, protocol=protocol,
+                        compression=compression, suppressed=self.quiet)
         self.mode = Mode.COMMAND if self.stay_in_command_mode else Mode.DATA
         self._last_data = self.clock()
         self._escape_count = 0
@@ -482,6 +492,7 @@ class AtParser:
         text = line.decode("ascii", "replace").strip()
         if not text:
             return b""
+        self._log_event("command", command=text)
         if text.upper() == "A/":
             # Repeat the last line, without re-echoing or re-storing it.
             text = getattr(self, "_previous", None)

@@ -80,6 +80,8 @@ Usage:
 """
 from __future__ import annotations
 
+import modem_log
+
 import argparse
 import collections
 import ctypes
@@ -739,7 +741,7 @@ def _parse_v90d_eq_trace(spec: str):
 V90D_EQ_TRACE = _parse_v90d_eq_trace(
     os.getenv('EICON_V90D_EQ_TRACE', ''))
 if V90D_EQ_TRACE is not None:
-    print(f'[v90d-eq] trace configured period={V90D_EQ_TRACE[0]} '
+    modem_log.debug(f'[v90d-eq] trace configured period={V90D_EQ_TRACE[0]} '
           f'after={V90D_EQ_TRACE[1]} budget={V90D_EQ_TRACE[2]}', flush=True)
 # Diagnostic-only mapping producer trace.  The six source words are the
 # receiver-side vector consumed by the V.90D mapping generator; the six words
@@ -749,7 +751,7 @@ if V90D_EQ_TRACE is not None:
 V90D_MAP_TRACE = _parse_v90d_eq_trace(
     os.getenv('EICON_V90D_MAP_TRACE', ''))
 if V90D_MAP_TRACE is not None:
-    print(f'[v90d-map] trace configured period={V90D_MAP_TRACE[0]} '
+    modem_log.debug(f'[v90d-map] trace configured period={V90D_MAP_TRACE[0]} '
           f'after={V90D_MAP_TRACE[1]} budget={V90D_MAP_TRACE[2]}', flush=True)
 # Optional state-triggered arm for captures where the answerer and caller do
 # not share a reliable wall-clock milestone.  The normal time trigger remains
@@ -762,7 +764,7 @@ try:
 except ValueError:
     V90D_MAP_TRACE_STATE = None
 if V90D_MAP_TRACE_STATE is not None:
-    print(f'[v90d-map] state trigger configured '
+    modem_log.debug(f'[v90d-map] state trigger configured '
           f'0x{V90D_MAP_TRACE_STATE:04x}', flush=True)
 # One-shot ADSP instruction trace for the late mapping-generator pass.
 # Format: STATE:BUDGET[:FRAMES].  It is intentionally separate from the
@@ -1022,7 +1024,7 @@ class Card:
             for address in range(low, high + 1):
                 ADSP.adsp2181_watch_pm(self.cpu, address, 1)
         if WATCH_PM_WRITES:
-            print('[watch-pm] armed ' + ",".join(f'0x{a:04x}-0x{b:04x}'
+            modem_log.debug('[watch-pm] armed ' + ",".join(f'0x{a:04x}-0x{b:04x}'
                                                  for a, b in WATCH_PM_WRITES),
                   file=sys.stderr)
         self.pm = ADSP.adsp2181_pm(self.cpu)
@@ -1090,7 +1092,7 @@ class Card:
             entry = REPO / directory
             data = json.loads((entry / 'metadata.json').read_text())
             index[int(ident, 0)] = (entry, data['description'])
-            print(f'[card] overlay 0x{int(ident, 0):04x} served from '
+            modem_log.debug(f'[card] overlay 0x{int(ident, 0):04x} served from '
                   f'{directory}: {data["description"]}')
         return index
 
@@ -1141,7 +1143,7 @@ class Card:
             self.dm[address] = value
         self.dm[0x1F14] = 8
         if not self._v90d_ucode_restored:
-            print('[v90d] restored selected PCMU Ucode table '
+            modem_log.debug('[v90d] restored selected PCMU Ucode table '
                   'at DM(0x1f14..0x1f93)')
             self._v90d_ucode_restored = True
 
@@ -1171,11 +1173,11 @@ class Card:
                 continue
             base = self.overlays.get(base_id)
             if base is None:
-                print(f'[relay-under] 0x{base_id:04x} is not in this '
+                modem_log.debug(f'[relay-under] 0x{base_id:04x} is not in this '
                       f'overlay set; nothing laid')
                 continue
             self._download(base[0])
-            print(f'[relay-under] laid 0x{base_id:04x} under '
+            modem_log.debug(f'[relay-under] laid 0x{base_id:04x} under '
                   f'0x{download_id:04x}')
         self._download(path)
         if download_id == V90D_ID:
@@ -1188,7 +1190,7 @@ class Card:
                 continue
             old = int(self.pm[address]) & 0xFFFFFF
             self.pm[address] = value
-            print(f'[patch-pm] PATCHED FIRMWARE: PM 0x{address:04x} '
+            modem_log.debug(f'[patch-pm] PATCHED FIRMWARE: PM 0x{address:04x} '
                   f'0x{old:06x} -> 0x{value:06x} on download '
                   f'0x{overlay:04x}')
         # Do not set WSTATUS.BOOTFINISHED here.  This direct harness resumes
@@ -1239,7 +1241,7 @@ class Card:
                 f'{len(matches)} times, expected once')
         self.pm[matches[0]] = 0
         self._v90a_tx_claimed = True
-        print(f'[v90a] host-owned TXD0 probe suppressed TIKRNL mark fill '
+        modem_log.debug(f'[v90a] host-owned TXD0 probe suppressed TIKRNL mark fill '
               f'at PM 0x{matches[0]:04x}')
 
     def _claim_v90d_tx_mailbox(self) -> None:
@@ -1268,7 +1270,7 @@ class Card:
             for address in addresses:
                 self.pm[address] = 0
         self._v90d_tx_claimed = True
-        print('[v90d] host-owned TX mailbox: suppressed five TIKRNL stores')
+        modem_log.debug('[v90d] host-owned TX mailbox: suppressed five TIKRNL stores')
 
     def _hold_tx_block(self, download_id: int) -> None:
         """Stop the per-frame clear of the V.90 mapping-frame block on page 14.
@@ -1288,32 +1290,32 @@ class Card:
                 and self.resident == V90A_ID):
             self.pm[V90D_TX_BLOCK_CLEAR] = v90a_saved_clear
             self._v90a_saved_clear = None
-            print('[v90a] restored the per-frame clear before entering '
+            modem_log.debug('[v90a] restored the per-frame clear before entering '
                   'page 14')
         if download_id == V90D_ID:
             if self._v90d_saved_clear is None:
                 self._v90d_saved_clear = int(self.pm[V90D_TX_BLOCK_CLEAR])
                 self.pm[V90D_TX_BLOCK_CLEAR] = 0x000000
-                print('[v90d] held the resident kernel\'s per-frame clear of '
+                modem_log.debug('[v90d] held the resident kernel\'s per-frame clear of '
                       'the mapping-frame block DM(0x3fa7..0x3fac) '
                       '(EICON_V90D_TX_BLOCK_HOLD=0 restores it)')
         elif self._v90d_saved_clear is not None and self.resident == V90D_ID:
             self.pm[V90D_TX_BLOCK_CLEAR] = self._v90d_saved_clear
             self._v90d_saved_clear = None
-            print(f'[v90d] restored the per-frame clear leaving page 14 for '
+            modem_log.debug(f'[v90d] restored the per-frame clear leaving page 14 for '
                   f'0x{download_id:04x}')
         if download_id == V90A_ID and V90A_HOLD_TX_BLOCK:
             if self._v90a_saved_clear is None:
                 self._v90a_saved_clear = int(self.pm[V90D_TX_BLOCK_CLEAR])
                 self.pm[V90D_TX_BLOCK_CLEAR] = 0x000000
-                print('[v90a] held the resident kernel\'s per-frame clear of '
+                modem_log.debug('[v90a] held the resident kernel\'s per-frame clear of '
                       'the mapping-frame block DM(0x3fa7..0x3fac) '
                       '(EICON_V90A_TX_BLOCK_HOLD=0 restores it)')
         elif (getattr(self, '_v90a_saved_clear', None) is not None
               and self.resident == V90A_ID):
             self.pm[V90D_TX_BLOCK_CLEAR] = self._v90a_saved_clear
             self._v90a_saved_clear = None
-            print(f'[v90a] restored the per-frame clear leaving page 13 for '
+            modem_log.debug(f'[v90a] restored the per-frame clear leaving page 13 for '
                   f'0x{download_id:04x}')
 
     def _hold_v90d_bulk(self, download_id: int) -> None:
@@ -1330,7 +1332,7 @@ class Card:
             if self._v90d_saved_bulk_opcode is None:
                 self._v90d_saved_bulk_opcode = int(self.pm[0x19C8])
                 self.pm[0x19C8] = 0x0A000F
-                print('[v90d] held shared bulk-delay worker PM 0x19c8')
+                modem_log.debug('[v90d] held shared bulk-delay worker PM 0x19c8')
             self._v90d_bulk_lengths = None
             self._v90d_bulk_pairs.clear()
         elif (self._v90d_saved_bulk_opcode is not None
@@ -1339,7 +1341,7 @@ class Card:
             self._v90d_saved_bulk_opcode = None
             self._v90d_bulk_lengths = None
             self._v90d_bulk_pairs.clear()
-            print(f'[v90d] restored shared bulk-delay worker leaving page 14 '
+            modem_log.debug(f'[v90d] restored shared bulk-delay worker leaving page 14 '
                   f'for 0x{download_id:04x}')
 
     def _service_v90d_bulk(self) -> None:
@@ -1369,7 +1371,7 @@ class Card:
                       else 'DM(0x3f04)')
             if V90D_BULK_SELECTOR_OVERRIDE is not None:
                 source += f', selector=0x{V90D_BULK_SELECTOR_OVERRIDE:04x}'
-            print(f'[v90d] portable bulk delay near={near} far={far} '
+            modem_log.debug(f'[v90d] portable bulk delay near={near} far={far} '
                   f'source={source}')
         # PM 0x19e2/0x19e4 restore these saved-context words every frame;
         # publish both copies just as the native host path does.
@@ -1404,7 +1406,7 @@ class Card:
                 words.append(packet)
         if not words:
             raise ValueError(f'{path}: no V90D page TX mailbox records')
-        print(f'[v90d] loaded {len(words)} native TX mailbox datagrams from '
+        modem_log.debug(f'[v90d] loaded {len(words)} native TX mailbox datagrams from '
               f'{path}')
         return words
 
@@ -1430,7 +1432,7 @@ class Card:
         if not words:
             raise ValueError(f'{path}: no request-asserted V90A TXD0 words')
         states = len({state for state, _word in words})
-        print(f'[v90a] loaded {len(words)} native TXD0 words from {path}'
+        modem_log.debug(f'[v90a] loaded {len(words)} native TXD0 words from {path}'
               f' across {states} V90A states')
         return words
 
@@ -1471,7 +1473,7 @@ class Card:
             if self.v90d_tx_requests == 1:
                 source = ('native replay' if self._v90d_tx_replay
                           else 'PRBS')
-                print(f"[v90d] supplied first direct TX mailbox datagram "
+                modem_log.debug(f"[v90d] supplied first direct TX mailbox datagram "
                       f"({source}) "
                       f"{self._v90d_tx_pending[0]:04x}/"
                       f"{self._v90d_tx_pending[1]:04x}/"
@@ -1532,7 +1534,7 @@ class Card:
                 self._v90a_tx_replay_index += 1
             if not self._v90a_tx_replay_logged:
                 self._v90a_tx_replay_logged = True
-                print(f'[v90a] supplied first native TXD0 replay word '
+                modem_log.debug(f'[v90a] supplied first native TXD0 replay word '
                       f'0x{self._v90a_tx_pending:04x}'
                       f' (state-coupled={int(V90A_TX_STATE_REPLAY)})')
         elif V90A_TX_TRN1U:
@@ -1617,7 +1619,7 @@ class Card:
                 state = int(value, 16) & 0xFFFF
                 if (V90A_TX_PEER_STATE_TRACE
                         and state != self._v90a_peer_state):
-                    print(f'[v90a] imported peer TrnProgress '
+                    modem_log.debug(f'[v90a] imported peer TrnProgress '
                           f'0x{state:04x}', flush=True)
                 self._v90a_peer_state = state
             except (FileNotFoundError, ValueError):
@@ -1630,7 +1632,7 @@ class Card:
             return
         symbols = json.loads(meta.read_text()).get('symbols') or []
         if not symbols:
-            print(f'[overlay-init] 0x{download_id:04x} declares no symbols')
+            modem_log.debug(f'[overlay-init] 0x{download_id:04x} declares no symbols')
             return
         entry = symbols[0]['offset']
         ADSP.adsp2181_call(self.cpu, entry, KERNEL_IDLE)
@@ -1639,10 +1641,10 @@ class Card:
             if ADSP.adsp2181_idle(self.cpu):
                 break
         else:
-            print(f'[overlay-init] 0x{download_id:04x} entry PM 0x{entry:04x} '
+            modem_log.debug(f'[overlay-init] 0x{download_id:04x} entry PM 0x{entry:04x} '
                   f'did not return')
             return
-        print(f'[overlay-init] called 0x{download_id:04x} symbol 0 at '
+        modem_log.debug(f'[overlay-init] called 0x{download_id:04x} symbol 0 at '
               f'PM 0x{entry:04x}')
 
     def boot(self) -> None:
@@ -1866,7 +1868,7 @@ class Card:
                 # this point is running on state the firmware did not build.
                 self.truncated_frames += 1
                 if self.truncated_frames == 1:
-                    print(f'[frame] TRUNCATED at sample {index}: the task did '
+                    modem_log.debug(f'[frame] TRUNCATED at sample {index}: the task did '
                           f'not return within {budget} cycles '
                           f'(overlay 0x{self.resident:04x}, bootpage '
                           f'{self.dm[DM_BOOTPAGE]}, TrnProgress '
@@ -1951,7 +1953,7 @@ class Card:
             # action vector -- which publishes the pointer -- never runs
             # either. EICON_ORIGINATE_V8_AFTER asks for the page instead.
             self._shellinptr_warned = True
-            print('[card] V.8 is resident but shellinptr DM(0x3F0F) is '
+            modem_log.debug('[card] V.8 is resident but shellinptr DM(0x3F0F) is '
                   'unpublished; the page is receiving nothing')
 
     def frame(self, rx_code: int, index: int = 0,
@@ -1988,12 +1990,12 @@ class Card:
             description = self.download_overlay(wanted)
             if description is None:
                 if self.log:
-                    print(f'  frame {index}: no image for download '
+                    modem_log.debug(f'  frame {index}: no image for download '
                           f'0x{wanted:04x}, cannot serve')
                 break
             self.switches.append((index, self.dm[DM_BOOTPAGE], wanted))
             if self.log:
-                print(f'  frame {index}: bootpage {self.dm[DM_BOOTPAGE]:04x} '
+                modem_log.debug(f'  frame {index}: bootpage {self.dm[DM_BOOTPAGE]:04x} '
                       f'-> served 0x{wanted:04x} {description}')
             entry = self.dm[RESUME_DOWNLOAD]
 
@@ -2010,7 +2012,7 @@ class Card:
         if self.resident == V90D_ID and not getattr(
                 self, '_v90d_eq_trace_resident_seen', False):
             self._v90d_eq_trace_resident_seen = True
-            print(f'[v90d-eq] V90D resident at sample {index}', flush=True)
+            modem_log.debug(f'[v90d-eq] V90D resident at sample {index}', flush=True)
         if (self.resident != V90D_ID or index < V90D_EQ_TRACE[1]
                 or index % V90D_EQ_TRACE[0] != 0):
             return
@@ -2021,7 +2023,7 @@ class Card:
         imag_ptr = self.dm[0x2020] & 0x3fff
         real = self.dm[real_ptr]
         imag = self.dm[imag_ptr]
-        print(f'[v90d-eq] sample {index} ({index / 8000:.6f}s): '
+        modem_log.debug(f'[v90d-eq] sample {index} ({index / 8000:.6f}s): '
               f'state={self.dm[0x3fc2]:04x} istate={self.dm[0x2008]:04x} '
               f'rptr={real_ptr:04x} iptr={imag_ptr:04x} '
               f'input={real:04x}/{imag:04x} '
@@ -2041,7 +2043,7 @@ class Card:
                 if (self.dm[0x3fc2] & 0xffff) != V90D_MAP_TRACE_STATE:
                     return
                 self._v90d_map_trace_state_armed = True
-                print(f'[v90d-map] state trigger armed at sample {index} '
+                modem_log.debug(f'[v90d-map] state trigger armed at sample {index} '
                       f'(state=0x{V90D_MAP_TRACE_STATE:04x})', flush=True)
         elif index < V90D_MAP_TRACE[1]:
             return
@@ -2060,7 +2062,7 @@ class Card:
                                 for address in range(0x1de1, 0x1de7))
         published = ' '.join(f'{self.dm[address] & 0xffff:04x}'
                              for address in range(0x3fa7, 0x3fad))
-        print(f'[v90d-map] sample {index} ({index / 8000:.6f}s): '
+        modem_log.debug(f'[v90d-map] sample {index} ({index / 8000:.6f}s): '
               f'state={self.dm[0x3fc2] & 0xffff:04x} '
               f'speed={self.dm[0x3f61] & 0xffff:04x}/'
               f'{self.dm[0x3f62] & 0xffff:04x} '
@@ -2106,20 +2108,20 @@ class Card:
             ADSP.adsp2181_pin_dm(self.cpu, 0x203a,
                                  V90D_GENERATOR_PIN_VALUE, 1)
             self._v90d_generator_pin_active = True
-            print(f'[v90d] diagnostic generator pin enabled from state '
+            modem_log.debug(f'[v90d] diagnostic generator pin enabled from state '
                   f'0x{V90D_GENERATOR_PIN_STATE:04x}: '
                   f'DM(0x203a)=0x{V90D_GENERATOR_PIN_VALUE:04x}', flush=True)
         elif not generator_pin_active and self._v90d_generator_pin_active:
             ADSP.adsp2181_pin_dm(self.cpu, 0x203a, 0, 0)
             self._v90d_generator_pin_active = False
-            print('[v90d] diagnostic generator pin released', flush=True)
+            modem_log.debug('[v90d] diagnostic generator pin released', flush=True)
         if (V90D_WORKER_WATCH and not self._v90d_worker_watch_armed
                 and self.resident == V90D_ID
                 and (self.dm[0x3fc2] & 0xffff) >= V90D_WORKER_WATCH_STATE):
             for address, limit in V90D_WORKER_WATCH:
                 ADSP.adsp2181_watch_dm_writes(self.cpu, address, limit)
             self._v90d_worker_watch_armed = True
-            print(f'[v90d] worker DM write watch armed at state '
+            modem_log.debug(f'[v90d] worker DM write watch armed at state '
                   f'0x{V90D_WORKER_WATCH_STATE:04x}: '
                   f'{V90D_WORKER_WATCH}', flush=True)
         if (V90D_GENERATOR_TRACE is not None and self.resident == V90D_ID
@@ -2129,7 +2131,7 @@ class Card:
             ADSP.adsp2181_trace_budget(self.cpu,
                                        V90D_GENERATOR_TRACE[1])
             self._v90d_generator_trace_frames += 1
-            print(f'[v90d] generator instruction trace armed at sample '
+            modem_log.debug(f'[v90d] generator instruction trace armed at sample '
                   f'{index}, state=0x{self.dm[0x3fc2]:04x}, '
                   f'budget={V90D_GENERATOR_TRACE[1]}', flush=True)
         worker_input_pin_active = (
@@ -2139,7 +2141,7 @@ class Card:
             ADSP.adsp2181_pin_dm(self.cpu, 0x1e4f,
                                  V90D_WORKER_INPUT_PIN_VALUE, 1)
             self._v90d_worker_input_pin_active = True
-            print(f'[v90d] diagnostic worker input pin enabled from state '
+            modem_log.debug(f'[v90d] diagnostic worker input pin enabled from state '
                   f'0x{V90D_WORKER_INPUT_PIN_STATE:04x}: '
                   f'DM(0x1e4f)=0x{V90D_WORKER_INPUT_PIN_VALUE:04x}',
                   flush=True)
@@ -2147,7 +2149,7 @@ class Card:
               and self._v90d_worker_input_pin_active):
             ADSP.adsp2181_pin_dm(self.cpu, 0x1e4f, 0, 0)
             self._v90d_worker_input_pin_active = False
-            print('[v90d] diagnostic worker input pin released', flush=True)
+            modem_log.debug('[v90d] diagnostic worker input pin released', flush=True)
         worker_word_pins_active = (
             self.resident == V90D_ID and V90D_WORKER_WORD_PIN_VALUES
             and (self.dm[0x3fc2] & 0xffff)
@@ -2156,7 +2158,7 @@ class Card:
             for address, value in V90D_WORKER_WORD_PIN_VALUES.items():
                 ADSP.adsp2181_pin_dm(self.cpu, address, value, 1)
             self._v90d_worker_word_pins_active = True
-            print(f'[v90d] diagnostic worker word pins enabled from state '
+            modem_log.debug(f'[v90d] diagnostic worker word pins enabled from state '
                   f'0x{V90D_WORKER_WORD_PIN_STATE:04x}: '
                   f'{V90D_WORKER_WORD_PIN_VALUES}', flush=True)
         elif (not worker_word_pins_active
@@ -2164,7 +2166,7 @@ class Card:
             for address in V90D_WORKER_WORD_PIN_VALUES:
                 ADSP.adsp2181_pin_dm(self.cpu, address, 0, 0)
             self._v90d_worker_word_pins_active = False
-            print('[v90d] diagnostic worker word pins released', flush=True)
+            modem_log.debug('[v90d] diagnostic worker word pins released', flush=True)
         speed_pin_active = (self.resident == V90D_ID and V90D_SPEED_PIN
                             and (self.dm[0x3fc2] & 0xffff)
                             >= V90D_SPEED_PIN_STATE)
@@ -2173,7 +2175,7 @@ class Card:
             if V90D_SPEED_PIN_RX is not None:
                 ADSP.adsp2181_pin_dm(self.cpu, 0x3f62, V90D_SPEED_PIN_RX, 1)
             self._v90d_speed_pin_active = True
-            print(f'[v90d] diagnostic speed pin enabled from state '
+            modem_log.debug(f'[v90d] diagnostic speed pin enabled from state '
                   f'0x{V90D_SPEED_PIN_STATE:04x}: '
                   f'DM(0x3f61)=0x{V90D_SPEED_PIN_TX:04x}'
                   + (f' DM(0x3f62)=0x{V90D_SPEED_PIN_RX:04x}'
@@ -2183,7 +2185,7 @@ class Card:
             if V90D_SPEED_PIN_RX is not None:
                 ADSP.adsp2181_pin_dm(self.cpu, 0x3f62, 0, 0)
             self._v90d_speed_pin_active = False
-            print('[v90d] diagnostic speed pin released')
+            modem_log.debug('[v90d] diagnostic speed pin released')
         rate_pin_active = (self.resident == V90D_ID and V90D_RATE_PIN
                            and self.dm[0x3fc2] == V90D_RATE_PIN_STATE)
         if V90D_RATE_HARD:
@@ -2191,17 +2193,17 @@ class Card:
                 ADSP.adsp2181_pin_dm(self.cpu, 0x2117,
                                      V90D_RATE_PIN_VALUE, 1)
                 self._v90d_rate_hard_active = True
-                print(f'[v90d] hard rate-quality pin enabled in state '
+                modem_log.debug(f'[v90d] hard rate-quality pin enabled in state '
                       f'0x{V90D_RATE_PIN_STATE:04x}: '
                       f'DM(0x2117)=0x{V90D_RATE_PIN_VALUE:04x}')
             elif not rate_pin_active and self._v90d_rate_hard_active:
                 ADSP.adsp2181_pin_dm(self.cpu, 0x2117, 0, 0)
                 self._v90d_rate_hard_active = False
-                print('[v90d] hard rate-quality pin released')
+                modem_log.debug('[v90d] hard rate-quality pin released')
         if rate_pin_active:
             if not self._v90d_rate_pinned:
                 self._v90d_rate_pinned = True
-                print(f'[v90d] diagnostic rate-quality force in state '
+                modem_log.debug(f'[v90d] diagnostic rate-quality force in state '
                       f'0x{V90D_RATE_PIN_STATE:04x}: '
                       f'DM(0x2117)=0x{V90D_RATE_PIN_VALUE:04x}')
             self.dm[0x2117] = V90D_RATE_PIN_VALUE
@@ -2262,7 +2264,7 @@ class Card:
                 if map_scale_active:
                     if not self._v90d_map_scale_active:
                         self._v90d_map_scale_active = True
-                        print(f'[v90d] diagnostic mapping scale enabled from '
+                        modem_log.debug(f'[v90d] diagnostic mapping scale enabled from '
                               f'state 0x{V90D_MAP_SCALE[0]:04x}: '
                               f'{V90D_MAP_SCALE[1]:.6g}', flush=True)
                     for address in range(0x3fa7, 0x3fad):
@@ -2272,7 +2274,7 @@ class Card:
                             32767, round(signed * V90D_MAP_SCALE[1]))) & 0xffff
                 elif self._v90d_map_scale_active:
                     self._v90d_map_scale_active = False
-                    print('[v90d] diagnostic mapping scale released',
+                    modem_log.debug('[v90d] diagnostic mapping scale released',
                           flush=True)
             # Page 14 publishes the *sample itself* in DM(0x3FB4), not a
             # pointer to it, and Session 267 counted rather than inferred it:
@@ -2294,7 +2296,7 @@ class Card:
                 if delay_active and not self._v90d_tx_delay_active:
                     self._v90d_tx_delay_queue.clear()
                     self._v90d_tx_delay_active = True
-                    print(f'[v90d] diagnostic TX delay enabled from state '
+                    modem_log.debug(f'[v90d] diagnostic TX delay enabled from state '
                           f'0x{V90D_TX_DELAY[0]:04x}: '
                           f'{V90D_TX_DELAY[1]} samples', flush=True)
                 elif not delay_active and self._v90d_tx_delay_active:
@@ -2329,10 +2331,10 @@ class Card:
             st['cnt'] = max(st['cnt'], self.dm[0x07BD])
             if index == 60000:
                 tot = sum(st['ptr'].values())
-                print('[fe] DM(06BE) pointer: ' + ', '.join(
+                modem_log.debug('[fe] DM(06BE) pointer: ' + ', '.join(
                     '%04x=%.1f%%' % (k, 100.0*v/tot)
                     for k, v in sorted(st['ptr'].items(), key=lambda kv: -kv[1])[:4]))
-                print('[fe] stand-in=%s RXSAMPLE distinct=%d  DM(0772) '
+                modem_log.debug('[fe] stand-in=%s RXSAMPLE distinct=%d  DM(0772) '
                       'distinct=%d  peak level DM(07BC)=%d  peak count '
                       'DM(07BD)=%d  (threshold %d, escape 1920)'
                       % (self.rxsample_stand_in, len(st['buf']), len(st['in']),
@@ -2378,7 +2380,7 @@ class Card:
             }
             import atexit
             atexit.register(self._census_report)
-            print('[tx-census] counting page-14 DM writes '
+            modem_log.debug('[tx-census] counting page-14 DM writes '
                   '(EICON_V90D_TX_CENSUS)')
         trn = self.dm[DM_TRNPROGRESS]
         state['frames'][trn] += 1
@@ -2419,26 +2421,26 @@ class Card:
         if not state:
             return
         total = sum(state['frames'].values())
-        print(f'[tx-census] {total} page-14 frames')
+        modem_log.debug(f'[tx-census] {total} page-14 frames')
         for trn, frames in sorted(state['frames'].items()):
             live = state['published'][trn]
-            print(f'[tx-census] TrnProgress {trn:04x}: {frames} frames, '
+            modem_log.debug(f'[tx-census] TrnProgress {trn:04x}: {frames} frames, '
                   f'{live} published a nonzero sample '
                   f'({100.0 * live / max(1, frames):.1f}%)')
             for address in sorted(state['writes'][trn]):
                 count = state['writes'][trn][address]
-                print(f'    DM {address:04x}: {count:9d} writes '
+                modem_log.debug(f'    DM {address:04x}: {count:9d} writes '
                       f'= {count / frames:7.3f}/frame')
         split = state.get('split') or {}
         if split:
-            print('[tx-census] executions by half of the harness frame:')
+            modem_log.debug('[tx-census] executions by half of the harness frame:')
             for key in sorted(split):
-                print(f'    {key[0]:10s} in the {key[1]:12s} half: {split[key]}')
-        print('[tx-census] writes per frame, distribution:')
+                modem_log.debug(f'    {key[0]:10s} in the {key[1]:12s} half: {split[key]}')
+        modem_log.debug('[tx-census] writes per frame, distribution:')
         for address in sorted(state['per_frame']):
             dist = ' '.join(f'{k}x{v}' for k, v in
                             sorted(state['per_frame'][address].items()))
-            print(f'    DM {address:04x}: {dist}')
+            modem_log.debug(f'    DM {address:04x}: {dist}')
 
 
 def print_bootpage_table(card: Card) -> None:
@@ -2446,12 +2448,12 @@ def print_bootpage_table(card: Card) -> None:
              0x0262: 'DIAL/FSK/FAX', 0x0263: 'DIAL partial', 0x0266: 'V.22/V.32 LEC',
              0x0268: '?', 0x0269: '?', 0x026A: 'V.90 DPCM', 0x026B: '?',
              0x026E: 'INFOH', 0x026F: 'HV.34', 0x0271: 'V.22FC'}
-    print('bootpage table (DM 0x31D5, indexed by bootpage_nr / DM 0x3FB0):')
+    modem_log.debug('bootpage table (DM 0x31D5, indexed by bootpage_nr / DM 0x3FB0):')
     for page in range(18):
         raw = card.dm[DM_BOOTPAGE_TABLE + page]
         download = raw if raw < 0x8000 else 0x10000 - raw
         sign = '+' if raw < 0x8000 else '-'
-        print(f'  page {page:2d}: {raw:04x} {sign} download 0x{download:04x} '
+        modem_log.debug(f'  page {page:2d}: {raw:04x} {sign} download 0x{download:04x} '
               f'{names.get(download, "")}')
 
 
@@ -2499,22 +2501,22 @@ def main() -> int:
                 host_dispatch=args.host_dispatch)
     card.boot()
     card.configure_modem(args.role)
-    print(f'[card] firmware-set={FIRMWARE_SET} kernel={KERNEL} overlays={OVERLAYS}')
-    print(f'[card] kernel + TIKRNL + DIAL up; role={args.role}; the task claimed '
+    modem_log.debug(f'[card] firmware-set={FIRMWARE_SET} kernel={KERNEL} overlays={OVERLAYS}')
+    modem_log.debug(f'[card] kernel + TIKRNL + DIAL up; role={args.role}; the task claimed '
           f'PM {PM_FOREGROUND_SLOT:04x}={card.foreground_slot & 0xFFFFFF:06x} '
           f'(foreground dispatch) and '
           f'PM {PM_ISR_SLOT:04x}={card.isr_slot & 0xFFFFFF:06x} (SPORT0 ISR)')
-    print(f'[card] overlay stubs after the DIAL download: '
+    modem_log.debug(f'[card] overlay stubs after the DIAL download: '
           f'PM 08f0={card.pm[OVL_STATE_STUB]:06x} '
           f'08f1={card.pm[OVL_LINE_STUB]:06x} (TIKRNL ships both as 0a000f = RTS)')
-    print(f'[card] frame entry PM {card.entry:04x}; host-command queue '
+    modem_log.debug(f'[card] frame entry PM {card.entry:04x}; host-command queue '
           f'DM 2f28={card.dm[DM_QUEUE_HEAD]:04x} '
           + ('(assigned)' if card.dm[DM_QUEUE_HEAD] else
              '(unassigned -- the MIPS-side channel assignment)'))
-    print(f'[card] task entry table DM {RESUME_ENTRIES:04x}: '
+    modem_log.debug(f'[card] task entry table DM {RESUME_ENTRIES:04x}: '
           f'AR=1 -> {card.dm[RESUME_ENTRIES]:04x}  '
           f'AR=2 -> {card.dm[RESUME_DOWNLOAD]:04x} (post-download resume)')
-    print(f'[card] overlay images indexed: {len(card.overlays)} from {OVERLAYS}')
+    modem_log.debug(f'[card] overlay images indexed: {len(card.overlays)} from {OVERLAYS}')
 
     if args.bootpage_table:
         print_bootpage_table(card)
@@ -2540,7 +2542,7 @@ def main() -> int:
             if description is None:
                 raise SystemExit('the selected firmware set has no INFO overlay')
             card.switches.append((f, 7, 0x0260))
-            print(f'[card] frame {f}: diagnostic direct load -> {description}')
+            modem_log.debug(f'[card] frame {f}: diagnostic direct load -> {description}')
         hist = card.frame(tone[f % len(tone)], index=f)
         totals.update(hist)
         state = card.dm[DM_BOOTPAGE]
@@ -2568,23 +2570,23 @@ def main() -> int:
         if now != prev:
             changes += 1
             if args.log or changes <= 12:
-                print(f'  frame {f:4d}: 3F08={now[0]:04x} 3F09={now[1]:04x} '
+                modem_log.debug(f'  frame {f:4d}: 3F08={now[0]:04x} 3F09={now[1]:04x} '
                       f'3FB0={now[2]:04x} 3FB2={now[3]:04x} 3FB3={now[4]:04x} '
                       f'3FC1={now[5]:04x}')
             prev = now
 
-    print(f'[card] {args.frames} frames, {changes} data-pump register changes')
-    print('[card] DIAL entered via the overlay stubs: '
+    modem_log.debug(f'[card] {args.frames} frames, {changes} data-pump register changes')
+    modem_log.debug('[card] DIAL entered via the overlay stubs: '
           f'08f1(line)={totals.get(OVL_LINE_STUB, 0)} '
           f'08f0(state)={totals.get(OVL_STATE_STUB, 0)} '
           f'1bbd={totals.get(0x1BBD, 0)} 1b9c={totals.get(0x1B9C, 0)}')
-    print('[card] DIAL DSP work: action dispatch 1da7='
+    modem_log.debug('[card] DIAL DSP work: action dispatch 1da7='
           f'{totals.get(0x1DA7, 0)} line-signal handler 1bce={totals.get(0x1BCE, 0)}')
-    print('[card] SIG stubs (PM 1900-1902): '
+    modem_log.debug('[card] SIG stubs (PM 1900-1902): '
           + ' '.join(f'{a:04x}:{totals.get(a, 0)}' for a in SIG_STUBS))
-    print(f'[card] action vector call (PM 06e8, via DM 3FB2): '
+    modem_log.debug(f'[card] action vector call (PM 06e8, via DM 3FB2): '
           f'{totals.get(0x06E8, 0)}')
-    print('[card] bootpage_nr (DM 3FB0) histogram: '
+    modem_log.debug('[card] bootpage_nr (DM 3FB0) histogram: '
           + ' '.join(f'{s:04x}:{c}' for s, c in states.most_common()))
 
     # PM 0x0686-0x0694: index DM 0x31D5 with bootpage_nr, then publish the
@@ -2593,31 +2595,31 @@ def main() -> int:
     # through to the fixed pair (type 0x000D, download 0x0270 = the SIG
     # overlay) until SIG is resident, and are then requested directly too.
     if card.switches:
-        print(f'[card] page switches served: {len(card.switches)}')
+        modem_log.debug(f'[card] page switches served: {len(card.switches)}')
         for wanted, count in card.served.most_common():
             name = card.overlays[wanted][1].split(' Version')[0]
             pages = sorted({p for _, p, w in card.switches if w == wanted})
-            print(f'  0x{wanted:04x} {name:28s} x{count:<4d} '
+            modem_log.debug(f'  0x{wanted:04x} {name:28s} x{count:<4d} '
                   'from page ' + ','.join(f'{p:04x}' for p in pages))
         chain = ' -> '.join(f'{p:04x}:{w:04x}' for _, p, w in card.switches[:12])
-        print(f'  first switches (page:download): {chain}'
+        modem_log.debug(f'  first switches (page:download): {chain}'
               + (' ...' if len(card.switches) > 12 else ''))
     for wanted, count in sorted(card.unserved.items()):
-        print(f'[card] UNSERVED download 0x{wanted:04x} x{count}: '
+        modem_log.debug(f'[card] UNSERVED download 0x{wanted:04x} x{count}: '
               'no extracted image, the frame stops at the request')
     download = card.dm[DM_DOWNLOAD_REQ]
     if download:
-        print(f'[card] last TIKRNL overlay request: DM {DM_DOWNLOAD_REQ:04x}='
+        modem_log.debug(f'[card] last TIKRNL overlay request: DM {DM_DOWNLOAD_REQ:04x}='
               f'0x{download:04x} type DM {DM_DOWNLOAD_FLAG:04x}='
               f'0x{card.dm[DM_DOWNLOAD_FLAG]:04x}; '
               f'resident overlay 0x{card.resident:04x}')
     # DM 0x3F09 is the second line register; TIKRNL ORs 0x1000 into it at PM
     # 0x06CE before handing the frame to the overlay, so print the whole word
     # rather than pretending the low byte is a bare μ-law codeword.
-    print('[card] DM 3F09 (line register, post-TIKRNL) first 16: '
+    modem_log.debug('[card] DM 3F09 (line register, post-TIKRNL) first 16: '
           + ' '.join(f'{v:04x}' for v in tx[:16]))
     first_nonzero = next((i for i, value in enumerate(tx_linear) if value), None)
-    print(f'[card] DM[3FB4] signed-linear TX: pointer={card.dm[DM_TX_POINTER]:04x} '
+    modem_log.debug(f'[card] DM[3FB4] signed-linear TX: pointer={card.dm[DM_TX_POINTER]:04x} '
           f'nonzero={sum(value != 0 for value in tx_linear)}/{len(tx_linear)} '
           f'first-nonzero={first_nonzero if first_nonzero is not None else "none"} '
           'first16=' + ' '.join(f'{v:04x}' for v in tx_linear[:16]))
@@ -2625,7 +2627,7 @@ def main() -> int:
         args.tx_out.parent.mkdir(parents=True, exist_ok=True)
         args.tx_out.write_bytes(b''.join(
             int(value).to_bytes(2, 'little') for value in tx_linear))
-        print(f'[card] wrote {len(tx_linear)} signed-linear samples to {args.tx_out}')
+        modem_log.debug(f'[card] wrote {len(tx_linear)} signed-linear samples to {args.tx_out}')
     if args.state_out:
         args.state_out.parent.mkdir(parents=True, exist_ok=True)
         args.state_out.write_text(json.dumps({
@@ -2634,13 +2636,13 @@ def main() -> int:
             'role': args.role, 'frequency': args.freq,
             'switches': card.switches, 'states': state_trace,
         }, indent=2) + '\n')
-        print(f'[card] wrote {len(state_trace)} changed state snapshots to '
+        modem_log.debug(f'[card] wrote {len(state_trace)} changed state snapshots to '
               f'{args.state_out}')
     if args.g711_out:
         g711 = card.encode_g711(tx_linear)
         args.g711_out.parent.mkdir(parents=True, exist_ok=True)
         args.g711_out.write_bytes(g711)
-        print(f'[card] called TIKRNL PM {G711_ENCODE_ENTRY:04x}; wrote '
+        modem_log.debug(f'[card] called TIKRNL PM {G711_ENCODE_ENTRY:04x}; wrote '
               f'{len(g711)} A-law octets to {args.g711_out}; '
               f'first16={" ".join(f"{value:02x}" for value in g711[:16])}')
     return 0

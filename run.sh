@@ -20,4 +20,4 @@ export EICON_V42_DETECT_TIMEOUT=3600
   --law pcmu \
   --rtp-packet-ms 30 \
   --dial-target 192.168.196.29:5060 \
-  --v42-pty --pty-link /run/modem-emu/tty --at
+  --v42-pty --pty-link /run/modem-emu/tty --at "$@"

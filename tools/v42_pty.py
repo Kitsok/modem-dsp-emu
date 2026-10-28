@@ -24,6 +24,7 @@ import errno
 import os
 import pty
 import tty
+from modem_log import info as print
 
 
 class PtyLink:
@@ -70,7 +71,7 @@ class PtyLink:
                 raise
             self.log(f'[v42-pty] stable terminal: {self.link_path}')
         self.log(f'[v42-pty] terminal ready on {self.name} '
-                 f'-- attach with: screen {self.name}')
+                 f'-- attach with: tio {self.name}')
 
     def write_terminal(self, payload: bytes) -> None:
         """Write to whoever has the slave open, tolerating nobody being there.

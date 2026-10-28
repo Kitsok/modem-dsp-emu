@@ -180,6 +180,31 @@ so that diagnostic mode does not provide uniform wire pacing. Keep buffering
 on for packet-timing comparisons. Very short intervals remain subject to host
 scheduler precision. Peer/gateway packetization should be verified in captures.
 
+### Normal and debug logs
+
+The SIP endpoint defaults to `--log-level info`. Normal output includes AT
+commands and symbolic results, SIP/call lifecycle events, modem data-state
+rates, LAPM lifecycle events, negotiated compression, warnings and errors.
+AT logging is independent of terminal echo, quiet and numeric-result settings;
+quiet results are marked suppressed. Commands are logged once assembled by
+the parser, so split writes and line editing do not produce partial records.
+Terminal payload in data mode is not logged at info level.
+
+Use `--log-level debug` to include DSP state transitions, overlay requests,
+mailbox counters, protocol traces and media statistics. The existing per-site
+log cap still applies to capped diagnostic sites. Debug mode does not enable
+packet or audio captures; those require their existing capture options.
+Standalone diagnostic tools retain their previous output unless logging has
+been configured by the SIP endpoint. Logs go to standard output, suitable for
+systemd journal collection when deployed as a service.
+
+The dev launcher accepts additional endpoint arguments:
+
+```bash
+./run.sh                       # normal logs, idle until ATDT
+./run.sh --log-level debug      # troubleshooting diagnostics
+```
+
 ### The terminal before the call
 
 `--v42-pty` allocates the terminal at startup and prints its path, and with

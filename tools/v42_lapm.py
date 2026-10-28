@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections import deque
 import os
+from modem_log import protocol as print
 from dataclasses import dataclass
 
 from v42bis import (V42bisDecoder, V42bisEncoder, V42bisError,

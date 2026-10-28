@@ -33,9 +33,10 @@ measured in data-pump service calls, not milliseconds; its default is 600.
 The originator accepts ADP character separators of 8–16 mark bits.
 
 When V.34 reaches data state and LAPM is connected, the AT terminal reports
-CONNECT and accepts data. The current V.34 AT result labels compression as
-NONE even when V.42bis is negotiated; inspect peer diagnostics to confirm
-compression rather than relying on that label.
+CONNECT and accepts data. Connection logging and the AT compression field
+use active negotiated codecs (NONE, V42BIS or V44), rather than the requested
+compression option. Normal connection logs always include compression even
+when the terminal CONNECT format omits it.
 
 ## Observed interoperability
 
@@ -88,3 +89,12 @@ screen /dev/modem-emu
 Type `AT` and expect `OK`, then type `ATDT100`. The public path stays the
 same across emulator restarts even when Linux allocates a different PTY.
 `/dev/modem-emu` is dangling while the emulator is stopped.
+
+## Logging
+
+The launcher defaults to normal (`info`) logging. AT commands, symbolic
+results, connection rates/protocol/compression and call lifecycle events go
+to standard output. Data-mode terminal payloads and routine DSP/media
+telemetry stay out of normal logs. Use `./run.sh --log-level debug` to restore
+detailed diagnostics. Captures remain separately controlled and disabled by
+default. No systemd unit is installed by this logging change.

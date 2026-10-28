@@ -16,6 +16,8 @@ The two V.90 pages carry one wide direction each:
   RXD1 and DM(0x3FB1) under DI_control bit 13 (`PM 0x2F9D..0x2FA8` of the
   109-789 page).
 """
+
+import modem_log
 import os
 
 from eicon_idi import v34_rate
@@ -55,7 +57,7 @@ def claim_tx_mailbox(pm):
         raise RuntimeError(f'V.34 TX ownership signature matched {len(matches)} times')
     for address in matches[0]:
         pm[address] = 0
-    print('[v34-mailbox] host owns TXD stores at ' +
+    modem_log.debug('[v34-mailbox] host owns TXD stores at ' +
           '/'.join(f'{address:04x}' for address in matches[0]))
 
 
@@ -80,7 +82,7 @@ def claim_wide_rx_mailbox(pm):
     if not matches:
         return None
     pm[matches[0] + 2] = 0
-    print(f'[v34-mailbox] host owns wide RX datagrams '
+    modem_log.debug(f'[v34-mailbox] host owns wide RX datagrams '
           f'(kernel clear at {matches[0] + 2:04x} suppressed)')
     return matches[0] + 2
 
@@ -191,7 +193,7 @@ class V34Mailbox:
             if rx:
                 if (self.active and self.rx_width is not None
                         and rx != self.rx_width):
-                    print(f'[v34-mailbox] RX width {self.rx_width} -> {rx} '
+                    modem_log.info(f'[v34-mailbox] RX width {self.rx_width} -> {rx} '
                           f'bits/datagram at TrnProgress 0x{state:04x}')
                 self.rx_width = rx
             if self.tx_width and self.rx_width:
@@ -204,7 +206,7 @@ class V34Mailbox:
                 self.active = True
                 # Drop training-era receive words, as the native shim does.
                 dm[0x3FAD] &= ~0x6000
-                print(f'[v34-mailbox] synchronous data: TX {self.tx_width}, '
+                modem_log.debug(f'[v34-mailbox] synchronous data: TX {self.tx_width}, '
                       f'RX {self.rx_width} bits/datagram at TrnProgress '
                       f'0x{state:04x} (speedTx 0x{dm[0x3F61]:04x}, '
                       f'speed 0x{dm[0x3F62]:04x})')
