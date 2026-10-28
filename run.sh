@@ -13,8 +13,8 @@ exec /usr/bin/python3 -u tools/eicon_adsp_sip.py \
   --tx-v42 \
   --tx-v42bis \
   --modem-role calling \
-  --bind 172.20.20.207 \
-  --advertise 172.20.20.207 \
+  --bind 0.0.0.0 \
+  --advertise 0.0.0.0 \
   --sip-port 5072 \
   --rtp-port 4012 \
   --law pcmu \

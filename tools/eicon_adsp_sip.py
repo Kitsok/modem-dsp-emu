@@ -747,7 +747,7 @@ def sip_tagged_to(value: str, tag: str) -> str:
 
 
 def local_address_for(peer: tuple[str, int], bound: str, advertised: str | None) -> str:
-    if advertised:
+    if advertised and advertised not in ('0.0.0.0', '::'):
         return advertised
     if bound not in ('0.0.0.0', '::'):
         return bound
@@ -5244,7 +5244,9 @@ def main() -> int:
     ap.add_argument('--log-level', choices=('info', 'debug'), default='info',
                     help='info: calls and AT events; debug: DSP and media diagnostics')
     ap.add_argument('--bind', default='0.0.0.0')
-    ap.add_argument('--advertise', help='IP address placed in Contact and SDP')
+    ap.add_argument('--advertise', default='0.0.0.0',
+                    help='IP address placed in Contact and SDP; '
+                         '0.0.0.0 selects the local address toward each peer (default)')
     ap.add_argument('--sip-port', type=int, default=5060)
     ap.add_argument('--rtp-port', type=int, default=4000)
     ap.add_argument('--registrar', help='optional SIP registrar host[:port]')

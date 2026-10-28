@@ -83,8 +83,10 @@ regular file or a symlink to an existing target. Closing the terminal
 removes the symlink only if it still points to that instance's PTY.
 The parent directory must already exist and be writable by the process.
 
-The included `run.sh` is the dev host launcher: it binds and advertises
-`172.20.20.207`, sends calls to `192.168.196.29:5060`, enables V.42bis and
+The included `run.sh` is the dev host launcher: it binds SIP and RTP to
+`0.0.0.0` and uses `--advertise 0.0.0.0` for automatic selection of the
+local address toward each peer. SIP/SDP carries that selected address,
+not the wildcard. It sends calls to `192.168.196.29:5060`, enables V.42bis and
 the compatibility settings above, and starts idle for `ATDT100`.
 It publishes the PTY at `/run/modem-emu/tty`. Adjust the addresses for
 another host and run the script from the repository root.

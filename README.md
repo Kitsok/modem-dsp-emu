@@ -180,6 +180,15 @@ so that diagnostic mode does not provide uniform wire pacing. Keep buffering
 on for packet-timing comparisons. Very short intervals remain subject to host
 scheduler precision. Peer/gateway packetization should be verified in captures.
 
+### Listen and advertised addresses
+
+Both `--bind` and `--advertise` default to `0.0.0.0`. Binding to the wildcard
+listens on all IPv4 interfaces. For advertising, the wildcard requests
+automatic selection: use an explicit bound address when configured, or the
+local source address selected by the route to each SIP peer. Contact, Via
+and SDP carry this usable address rather than `0.0.0.0`. An explicit
+`--advertise ADDRESS` still overrides automatic selection.
+
 ### System Python runtime
 
 The dev `run.sh` launcher executes `/usr/bin/python3` directly; it needs no
