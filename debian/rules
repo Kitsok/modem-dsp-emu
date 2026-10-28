@@ -1,0 +1,28 @@
+#!/usr/bin/make -f
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CFLAGS_MAINT_APPEND = -O3
+include /usr/share/dpkg/default.mk
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	mkdir -p debian/build
+	$(CC) $(CPPFLAGS) $(CFLAGS) -fPIC -shared tools/adsp2181emu/adsp2181_core.c $(LDFLAGS) -o debian/build/libadsp2181.dylib
+	$(CC) $(CPPFLAGS) $(CFLAGS) tools/adsp2181emu/adsp2181_core_test.c tools/adsp2181emu/adsp2181_core.c $(LDFLAGS) -o debian/build/adsp2181_core_test
+
+override_dh_auto_test:
+	debian/build/adsp2181_core_test
+	/usr/bin/python3 -S tests/run_runtime_tests.py
+
+override_dh_auto_install:
+	/usr/bin/python3 -S tools/install_runtime.py --destdir debian/modem-emu --library debian/build/libadsp2181.dylib
+
+override_dh_auto_clean:
+	rm -rf debian/build
+
+execute_before_dh_installtmpfiles:
+	dh_installsysusers
+
+override_dh_strip:
+	dh_strip --no-automatic-dbgsym

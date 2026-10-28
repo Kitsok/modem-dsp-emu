@@ -180,6 +180,29 @@ so that diagnostic mode does not provide uniform wire pacing. Keep buffering
 on for packet-timing comparisons. Very short intervals remain subject to host
 scheduler precision. Peer/gateway packetization should be verified in captures.
 
+### Private Debian package
+
+The `debian/` rules build an architecture-specific local package with
+`dpkg-buildpackage -us -uc -b`. Build dependencies include debhelper 13,
+dpkg-dev, GCC, make and system Python. Prepare the extracted Analog build-109
+firmware under `artifacts/eicon-dsp/build-109-789-analog` first, or set
+`MODEM_FIRMWARE_DIR` to its location. The build compiles the native ADSP core,
+runs its C tests and the focused Python runtime suite, and stages only runtime
+modules, the shared library, Analog firmware and service/configuration files.
+
+Debhelper initializes the service account, creates the public terminal link,
+enables boot startup and starts/restarts the service. Debian preserves the
+INI configuration on upgrades. Removal stops the service; purge removes its
+configuration, enablement and matching public symlink. The system account and
+persistent state are retained to avoid UID reuse and unintended data loss.
+
+This package is for private deployment. The repository provides no general
+redistribution grant for the project or extracted firmware; redistribution
+rights remain unverified. The native core identifies BSD-3-Clause attribution,
+which is retained in `debian/copyright`. No public redistribution is implied.
+Run `python3 -S tests/check_deb.py ../modem-emu_0.1.0+local1_amd64.deb` to check
+the built archive without installing it.
+
 ### Configuration launcher
 
 `/usr/bin/python3 tools/modem_service.py` loads `/etc/modem-emu.conf` when

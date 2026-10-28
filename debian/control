@@ -1,0 +1,18 @@
+Source: modem-emu
+Section: non-free/comm
+Priority: optional
+Maintainer: Konstantin Klubnichkin <kitsok@nebius.com>
+Build-Depends: debhelper-compat (= 13), dpkg-dev, gcc, make, python3 (>= 3.11)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+Homepage: https://github.com/cryan209/modem-dsp-emu
+
+Package: modem-emu
+Architecture: any
+Pre-Depends: ${misc:Pre-Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, python3 (>= 3.11), systemd, init-system-helpers (>= 1.54)
+Description: Analog modem emulator with SIP and an AT terminal
+ Runs the extracted Eicon Analog DSP firmware with a native ADSP core,
+ exposes an AT terminal, and transports modem audio over SIP/RTP.
+ This local package includes firmware with unverified redistribution rights.
+ It is intended for private deployment, not public redistribution.

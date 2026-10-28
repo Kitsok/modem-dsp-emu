@@ -48,3 +48,12 @@ docs/firmware/divase/*
 # interpreter somewhere other than /tmp/eicon-venv. Same shape as
 # profiles.toml, overlaid a table at a time.
 profiles.local.toml
+
+# Debian package build products.
+/debian/build/
+/debian/modem-emu/
+/debian/.debhelper/
+/debian/debhelper-build-stamp
+/debian/files
+/debian/*.substvars
+/debian/*.debhelper
