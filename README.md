@@ -113,16 +113,37 @@ them.
 
 ## Build and run
 
-The top-level makefile does not exist here; the emulator has its own:
+For a fresh Linux checkout, run:
 
 ```bash
-make -C tools/adsp2181emu
+./build.sh
+./run.sh
+# In another terminal:
+tio artifacts/modem-emu.tty
 ```
 
-`libadsp2181.dylib` is gitignored, so build it before trusting any replay.
+`build.sh` checks the installed Debian/Ubuntu packages `gcc`, `libc6-dev`
+and `python3`, the selected C compiler and its headers, and system Python
+3.11 or newer. It prints missing packages and an install command instead
+of installing anything. Missing `paplay` produces an optional sound warning;
+install `pulseaudio-utils` if local playback is wanted.
 
-The Python harnesses need `unicorn`, which is why they run under a separate venv
-rather than the system interpreter:
+The script builds the native shared library, standalone executable and C
+regression test, extracts the bundled Analog build-109 kernel/task/overlays,
+and runs the C and focused Python runtime tests. It works when invoked by
+path from another directory, uses no root privileges or virtual environment,
+and does not build or install a Debian package. `CC` and `CFLAGS` may override
+the compiler and default `-O3 -g` flags. Rerunning it rebuilds these outputs.
+Network access to the configured ATA is still required before dialing.
+
+The shared library and extracted firmware are gitignored and must be
+prepared in each fresh checkout. Although named `libadsp2181.dylib`, the
+library built on Linux is an ELF shared object. The standalone emulator
+Makefile uses macOS linker flags; Linux users should use `build.sh`.
+
+The Analog `run.sh` preset uses system Python without extra Python packages.
+The native MIPS Python harnesses need `unicorn`, which is why they run under
+a separate venv rather than the system interpreter:
 
 ```bash
 /tmp/eicon-venv/bin/python tools/v90_dpcm_vector_trace.py \

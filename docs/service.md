@@ -9,8 +9,10 @@ rights for the project and firmware remain unverified; see `debian/copyright`.
 
 Prepare the extracted Analog firmware at
 `artifacts/eicon-dsp/build-109-789-analog`, containing `kernel`, `tikrnl` and
-`overlays`. Alternatively set `MODEM_FIRMWARE_DIR` to that directory. From the
-repository root, with the dependencies in `debian/control` installed:
+`overlays`. Running `./build.sh` from a Linux checkout prepares these inputs
+and tests the source runtime without installing anything. Alternatively set
+`MODEM_FIRMWARE_DIR` to an already extracted directory. From the repository
+root, with the dependencies in `debian/control` installed:
 
 ```sh
 dpkg-buildpackage -us -uc -b

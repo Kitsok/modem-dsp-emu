@@ -5,11 +5,16 @@ firmware. `adsp2181_core.c` and `2100ops.inc` are standalone adaptations of
 MAME's ADSP-21xx CPU core (BSD-3-Clause, copyright Aaron Giles). The command
 wrapper is GPL-2.0-or-later, matching this repository.
 
-Build:
+Build from the repository root on Linux:
 
 ```bash
-make -C tools/adsp2181emu
+./build.sh
 ```
+
+This checks dependencies, builds the native library and executables,
+extracts Analog firmware, and runs the native and runtime tests. It does
+not install packages. For the standalone C core on macOS, use
+`make -C tools/adsp2181emu`; that Makefile uses macOS shared-library flags.
 
 Run an extracted addressed image:
 
