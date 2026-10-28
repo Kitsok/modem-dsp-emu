@@ -494,7 +494,8 @@ class AtParser:
                     f"CARRIER {carrier}\r\nPROTOCOL {protocol}\r\n"
                     f"COMPRESSION {compression}")
         elif self.connect_format == 1 and carrier:
-            text = f"CONNECT {carrier}/{protocol}/{tx_speed}:TX/{rx_speed}:RX"
+            text = (f"CONNECT {carrier}/{protocol}/{compression or 'NONE'}/"
+                    f"{tx_speed}:TX/{rx_speed}:RX")
         else:
             text = f"CONNECT {tx_speed}" if tx_speed else "CONNECT"
         self.last_connect_text = text

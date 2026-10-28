@@ -310,13 +310,23 @@ class CallControlTests(AtTestCase):
 
     def test_connect_detail_formats(self):
         text = self.at.connected(38666, 33600, 'V90', 'LAPM', 'NONE').decode()
-        self.assertIn('CONNECT V90/LAPM/38666:TX/33600:RX', text)
+        self.assertIn('CONNECT V90/LAPM/NONE/38666:TX/33600:RX', text)
 
     def test_x0_reports_a_plain_connect(self):
         self.send('ATX0')
         self.assertIn('CONNECT', self.at.connected(38666, 33600, 'V90').decode())
         self.assertNotIn('38666',
                          self.at.connected(38666, 33600, 'V90').decode())
+
+    def test_connect_reports_negotiated_compression(self):
+        for compression in ('V42BIS', 'V44', 'NONE', ''):
+            with self.subTest(compression=compression):
+                parser = AtParser()
+                expected = (f"CONNECT V34/LAPM/{compression or 'NONE'}/"
+                            "31200:TX/16800:RX")
+                reply = parser.connected(31200, 16800, 'V34', 'LAPM', compression)
+                self.assertEqual(reply, b'\r\n' + expected.encode() + b'\r\n')
+                self.assertEqual(parser.last_connect_text, expected)
 
     def test_x0_collapses_call_failures_to_no_carrier(self):
         self.send('ATX0')

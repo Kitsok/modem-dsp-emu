@@ -61,8 +61,16 @@ The originator accepts ADP character separators of 8–16 mark bits.
 When V.34 reaches data state and LAPM is connected, the AT terminal reports
 CONNECT and accepts data. Connection logging and the AT compression field
 use active negotiated codecs (NONE, V42BIS or V44), rather than the requested
-compression option. Normal connection logs always include compression even
-when the terminal CONNECT format omits it.
+compression option. The default verbose terminal result includes modulation,
+error correction, compression and directional rates, for example:
+
+```text
+CONNECT V34/LAPM/V42BIS/31200:TX/16800:RX
+```
+
+The compression field is NONE when no codec was negotiated. Numeric and
+minimal CONNECT modes keep their shorter results; normal connection logs
+still include the negotiated compression.
 
 ## Observed interoperability
 

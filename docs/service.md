@@ -93,6 +93,9 @@ ATA. Dialing has no initial OK: wait for CONNECT or failure. A keypress while
 dialing/training aborts without Enter and returns NO CARRIER. After CONNECT,
 ordinary keypresses carry modem data. To hang up, stop typing for the escape
 guard interval, send `+++` without Enter, wait again, then enter `ATH`.
+The default verbose result includes negotiated compression, for example
+`CONNECT V34/LAPM/V42BIS/31200:TX/16800:RX`. LAPM indicates error correction;
+NONE in the compression field indicates that compression was not negotiated.
 
 With `[modem] role = auto`, incoming SIP calls use the answering role and
 ATDT uses the calling role in the same running service. Use `ATS0=1` to
