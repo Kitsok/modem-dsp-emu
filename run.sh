@@ -21,5 +21,7 @@ exec /usr/bin/python3 -u tools/eicon_adsp_sip.py \
   --rtp-port 4012 \
   --law pcmu \
   --rtp-packet-ms 30 \
-  --dial-target 192.168.196.29:5060 \
+  --dial-target 192.168.196.254:5060 \
+  --registrar 192.168.196.254:5060 \
+  --username 200 \
   --v42-pty --pty-link "$PWD/artifacts/modem-emu.tty" --at "$@"

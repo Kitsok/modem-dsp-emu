@@ -134,7 +134,8 @@ and runs the C and focused Python runtime tests. It works when invoked by
 path from another directory, uses no root privileges or virtual environment,
 and does not build or install a Debian package. `CC` and `CFLAGS` may override
 the compiler and default `-O3 -g` flags. Rerunning it rebuilds these outputs.
-Network access to the configured ATA is still required before dialing.
+Network access to the configured SIP server and peer RTP addresses is still
+required before dialing.
 
 The shared library and extracted firmware are gitignored and must be
 prepared in each fresh checkout. Although named `libadsp2181.dylib`, the
@@ -366,6 +367,14 @@ The dev launcher accepts additional endpoint arguments:
 ./run.sh                       # normal logs, idle until ATDT
 ./run.sh --log-level debug      # troubleshooting diagnostics
 ```
+
+The source preset sends calls to the Nanovax Asterisk PBX at
+`192.168.196.254:5060` and registers extension `200` without a SIP password.
+From the VoIP subnet, type `ATDT100` or `ATDT101` to reach the physical
+Couriers. Use a different configured extension for each simultaneous
+instance. Override `--dial-target`, `--registrar` and `--username` together
+when using another PBX or account; these source defaults do not configure
+the separately installed system service.
 
 `run.sh` creates `artifacts` in the current checkout and publishes the
 terminal as `artifacts/modem-emu.tty`. Attach from another terminal with
