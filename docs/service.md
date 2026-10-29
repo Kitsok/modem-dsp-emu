@@ -122,6 +122,22 @@ The defaults are M1 L2. The monitor is optional and never sends speaker
 volume changes back to the modem line. It is intended for interactive
 launches; the system service has no desktop audio-session access by default.
 
+Before the remote answers, the speaker plays a short local dial tone and
+DTMF rendering of the dialed digits. SIP 180 Ringing enables local ringback
+(two seconds on, four seconds off). These are North American-style speaker
+tones, not signals injected into the modem line. SIP 180/183 responses with
+usable G.711 SDP allow received early media to replace the local tones when
+audio arrives. Early media is played only on the speaker and is not passed
+to the DSP. On SIP answer, queued setup audio is discarded and the speaker
+switches to the modem's RX/TX audio; default M1 mutes at modem CONNECT.
+Cancellation or failure stops setup playback. SIP ringing is logged as
+`[sip] outgoing call: 180`; no outgoing `RINGING` result is printed to the
+AT terminal. `RING` remains the incoming-call indication.
+
+The user confirmed hearing the setup audio during a manual call. Automated
+coverage is included in `tests/test_audio_monitor.py` but was not run for
+this change; remote early-media playback was not separately verified.
+
 The answering Courier must be configured separately for autoanswer, error
 correction and desired compression, with its serial application's DTR/RTS
 and flow control set appropriately. If mgetty manages that port, do not open

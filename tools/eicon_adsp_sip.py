@@ -2480,6 +2480,21 @@ class EiconSipEndpoint:
     def _on_rtp_packet(self, packet: bytes, peer) -> None:
         call = self.call
         if not call:
+            # Early media is speaker-only: never clock the calling DSP before
+            # SIP answer or carry these packets into its receive queue.
+            out = self.outgoing
+            monitor = getattr(self, 'audio_monitor', None)
+            if (out is not None and monitor is not None
+                    and peer == out.get('early_media')):
+                parsed = rtp_payload(packet, self.payload_type)
+                if parsed is not None and parsed[2]:
+                    if not out.get('early_audio'):
+                        monitor.reset_stream()
+                        out['early_audio'] = True
+                    payload = parsed[2]
+                    for offset in range(0, len(payload), 160):
+                        frame = payload[offset:offset + 160]
+                        monitor.feed(bytes([self.silence]) * len(frame), frame)
             return
         parsed = rtp_payload(packet, self.payload_type)
         if parsed is None:
@@ -4731,6 +4746,12 @@ class EiconSipEndpoint:
             'authorized': False,
             'modem_role': self.role_for(outgoing=True),
         }
+        monitor = getattr(self, 'audio_monitor', None)
+        if monitor is not None:
+            parser = self.at
+            monitor.update(mode=parser.speaker_mode if parser else 1,
+                           volume=parser.speaker_volume if parser else 2)
+            monitor.start_dial(number)
         modem_log.info(f'[sip] dialling {number} at {peer[0]}:{peer[1]}')
         # Boot before the INVITE goes out, not when the answer comes back.
         # Firmware entry is several seconds of wall time, and doing it after
@@ -4875,6 +4896,7 @@ class EiconSipEndpoint:
             self.outgoing = None
             self.dialed_card = None
             self.pending_analog_line = None
+        self._stop_dial_monitor()
         modem_log.info('[call] dialing aborted by terminal input')
         return self.at.no_carrier()
 
@@ -4906,6 +4928,13 @@ class EiconSipEndpoint:
             return
         if status < 200:
             out['provisional'] = True
+            monitor = getattr(self, 'audio_monitor', None)
+            if status in (180, 183):
+                media = parse_g711_sdp(body, peer, self.payload_type)
+                if media is not None:
+                    out['early_media'] = media
+                if status == 180 and monitor is not None and not out.get('early_audio'):
+                    monitor.ringback()
             if self.verbose or status in (180, 183):
                 modem_log.info(f'[sip] outgoing call: {status}')
             return
@@ -4943,6 +4972,9 @@ class EiconSipEndpoint:
         self.send_ack(headers)
         if self.call:
             return
+        monitor = getattr(self, 'audio_monitor', None)
+        if monitor is not None:
+            monitor.reset_stream()
         role = out.get('modem_role') or self.role_for(outgoing=True)
         card = self.dialed_card
         self.dialed_card = None
@@ -5050,7 +5082,14 @@ class EiconSipEndpoint:
         modem_log.debug(f'[reactive-engine] attached {binary} as frame-synchronous '
               f'wire peer ({self.codec_name})')
 
+    def _stop_dial_monitor(self) -> None:
+        monitor = getattr(self, 'audio_monitor', None)
+        if monitor is not None:
+            monitor.reset_stream()
+            monitor.update(active=False)
+
     def fail_outgoing(self) -> None:
+        self._stop_dial_monitor()
         self.outgoing = None
         self.dialed_card = None
         self.pending_analog_line = None
@@ -5359,6 +5398,11 @@ class EiconSipEndpoint:
                 if self.call is None:
                     # Idle: nothing else services the terminal.
                     self.pump_pty()
+                    monitor = getattr(self, 'audio_monitor', None)
+                    if monitor is not None and self.outgoing is not None:
+                        parser = self.at
+                        monitor.update(mode=parser.speaker_mode if parser else 1,
+                                       volume=parser.speaker_volume if parser else 2)
                 # Re-test rather than sharing the branch above: pump_pty() is
                 # what dispatches ATA, so a call can be established between the
                 # two, and booting a card takes seconds -- long enough to stall

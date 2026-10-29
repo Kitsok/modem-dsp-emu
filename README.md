@@ -272,8 +272,12 @@ volume on a separate worker. Its input queue holds at most 200 ms; a slow
 output drops monitor audio instead of waiting in the modem/RTP path.
 Mute, CONNECT in M1, and hangup discard stale playback. Playback failure
 logs a warning and disables the speaker for this run while the modem
-continues. SIP ringback is not synthesized; the speaker monitors media
-once the call is answered.
+continues. Before SIP answer, the speaker synthesizes a short dial tone,
+dialed DTMF and ringback on SIP 180. Received G.711 early media from a
+provisional SDP offer replaces those local sounds. Setup playback is
+discarded on answer, cancellation or failure; synthetic tones and early
+media never enter the DSP or transmitted RTP. After answer, the speaker
+monitors the modem's transmitted and received audio.
 
 For an unprivileged source checkout, run from the repository root:
 

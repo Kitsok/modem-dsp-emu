@@ -1,5 +1,6 @@
 """Speaker controls, exact monitor PCM and isolation from slow audio devices."""
 import os
+import math
 import struct
 import sys
 import threading
@@ -10,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from audio_monitor import AudioMonitor, mix_pcm
+from audio_monitor import AudioMonitor, mix_pcm, progress_pcm
 from eicon_at import AtParser
 from eicon_adsp_sip import EiconSipEndpoint, Call, RtpCapture
 
@@ -64,6 +65,69 @@ def wait_for(predicate):
 
 
 class SpeakerTests(unittest.TestCase):
+    def test_progress_frequencies_dtmf_and_ring_cadence(self):
+        def energy(pcm, frequency):
+            samples = struct.unpack('<160h', pcm)
+            real = sum(value * math.cos(2 * math.pi * frequency * n / 8000)
+                       for n, value in enumerate(samples))
+            imag = sum(value * math.sin(2 * math.pi * frequency * n / 8000)
+                       for n, value in enumerate(samples))
+            return real * real + imag * imag
+
+        tone = progress_pcm('100', 0, False, 2)
+        self.assertGreater(energy(tone, 350), 10 * energy(tone, 1200))
+        self.assertGreater(energy(tone, 440), 10 * energy(tone, 1200))
+        digit = progress_pcm('100', .32, False, 2)
+        self.assertGreater(energy(digit, 697), 10 * energy(digit, 2000))
+        self.assertGreater(energy(digit, 1209), 10 * energy(digit, 2000))
+        self.assertEqual(progress_pcm('100', .42, False, 2), bytes(320))
+        self.assertEqual(progress_pcm('100', 1, False, 2), bytes(320))
+        self.assertNotEqual(progress_pcm('100', 1, True, 2), bytes(320))
+        self.assertEqual(progress_pcm('100', 3, True, 2), bytes(320))
+        self.assertNotEqual(progress_pcm('100', 7, True, 2), bytes(320))
+
+    def test_early_media_is_speaker_only_and_split_into_monitor_frames(self):
+        from unittest.mock import Mock
+        endpoint = EiconSipEndpoint.__new__(EiconSipEndpoint)
+        endpoint.call = None
+        peer = ('192.0.2.1', 19000)
+        endpoint.outgoing = {'early_media': peer}
+        endpoint.audio_monitor = Mock()
+        endpoint.payload_type = 0
+        endpoint.silence = 255
+        packet = bytes.fromhex('800000010000000100000001') + bytes([42]) * 240
+        endpoint._on_rtp_packet(packet, ('192.0.2.2', 19000))
+        endpoint.audio_monitor.feed.assert_not_called()
+        endpoint._on_rtp_packet(packet, peer)
+        self.assertIsNone(endpoint.call)
+        self.assertTrue(endpoint.outgoing['early_audio'])
+        endpoint.audio_monitor.reset_stream.assert_called_once()
+        frames = endpoint.audio_monitor.feed.call_args_list
+        self.assertEqual([len(item.args[1]) for item in frames], [160, 80])
+        self.assertEqual(b''.join(item.args[1] for item in frames), bytes([42]) * 240)
+        endpoint._on_rtp_packet(packet, peer)
+        endpoint.audio_monitor.reset_stream.assert_called_once()
+
+    def test_provisional_response_selects_ringback_and_early_media(self):
+        from unittest.mock import Mock
+        endpoint = EiconSipEndpoint.__new__(EiconSipEndpoint)
+        peer = ('192.0.2.1', 5060)
+        endpoint.outgoing = {'call_id': 'call', 'peer': peer}
+        endpoint.cancelled_outgoing = {}
+        endpoint.payload_type = 0
+        endpoint.verbose = False
+        endpoint.audio_monitor = Mock()
+        headers = {'call-id': 'call'}
+        endpoint.on_invite_response(180, headers, '', peer)
+        endpoint.audio_monitor.ringback.assert_called_once()
+        sdp = 'v=0\r\nc=IN IP4 192.0.2.1\r\nm=audio 19000 RTP/AVP 0\r\n'
+        endpoint.on_invite_response(183, headers, sdp, peer)
+        self.assertEqual(endpoint.outgoing['early_media'], ('192.0.2.1', 19000))
+        self.assertFalse(endpoint.outgoing.get('early_audio', False))
+        endpoint.outgoing['early_audio'] = True
+        endpoint.on_invite_response(180, headers, '', peer)
+        endpoint.audio_monitor.ringback.assert_called_once()
+
     def test_at_commands_and_profile_reset(self):
         parser = AtParser()
         self.assertEqual((parser.speaker_mode, parser.speaker_volume), (1, 2))
