@@ -151,14 +151,23 @@ class SpeakerTests(unittest.TestCase):
 
     def test_missing_player_disables_only_the_speaker(self):
         warnings = []
-        with patch('audio_monitor.shutil.which', return_value=None):
+        with patch('audio_monitor.shutil.which', return_value=None), \
+                patch('audio_monitor.subprocess.Popen') as launch:
             monitor = AudioMonitor(range(256), log=warnings.append)
-        try:
-            monitor.update();monitor.feed(b'\0' * 160, b'\0' * 160)
-            self.assertTrue(monitor.disabled)
-            self.assertEqual(len(warnings), 1)
-        finally:
-            monitor.close()
+            try:
+                monitor.update()
+                monitor.start_dial('100')
+                monitor.ringback()
+                monitor.feed(b'\0' * 160, b'\0' * 160)
+                monitor.thread.join(timeout=1)
+                self.assertFalse(monitor.thread.is_alive())
+                self.assertTrue(monitor.disabled)
+                self.assertFalse(monitor.audible)
+                self.assertIsNone(monitor.progress)
+                launch.assert_not_called()
+                self.assertEqual(len(warnings), 1)
+            finally:
+                monitor.close()
 
     def test_unavailable_audio_server_disables_only_the_speaker(self):
         warnings = []

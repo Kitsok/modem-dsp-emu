@@ -77,13 +77,16 @@ class AudioMonitor:
     def update(self, *, mode=1, volume=2, connected=False, active=True):
         if not active:
             self.stop_progress()
-        audible = active and mode != 0 and (mode != 1 or not connected)
+        audible = (not self.disabled and not self.stopped.is_set()
+                   and active and mode != 0 and (mode != 1 or not connected))
         if audible != self.audible:
             self.generation += 1
             self.audible = audible
         self.volume = volume
 
     def start_dial(self, number: str):
+        if self.disabled or self.stopped.is_set():
+            return
         self.generation += 1
         self.progress = (number, time.monotonic(), False)
 
@@ -141,7 +144,7 @@ class AudioMonitor:
         progress_started = None
         progress_samples = 0
         try:
-            while not self.stopped.is_set():
+            while not self.disabled and not self.stopped.is_set():
                 if process is not None and generation != self.generation:
                     self._close_player(process)
                     process = None
