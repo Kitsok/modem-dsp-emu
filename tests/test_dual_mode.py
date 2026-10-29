@@ -67,7 +67,7 @@ class DualModeTests(unittest.TestCase):
 
     def test_incoming_answer_builds_answer_role(self):
         ep=self.endpoint();card=object()
-        ep.pending_invite=dict(headers={'from':'<sip:caller@peer>','to':'<sip:eicon@local>'},peer=('127.0.0.1',5060),media=('127.0.0.1',4000),call_id='incoming')
+        ep.pending_invite=dict(headers={'from':'<sip:caller@peer>','to':'<sip:eicon@local>','cseq':'1 INVITE'},peer=('127.0.0.1',5060),media=('127.0.0.1',4000),call_id='incoming')
         ep.build_card=Mock(return_value=card);ep._attach_reactive_engine=Mock();ep.attach_physical_line=Mock();ep.local_sdp=Mock(return_value=SDP)
         ep._complete_answer()
         ep.build_card.assert_called_once_with('answer')
@@ -81,7 +81,7 @@ class DualModeTests(unittest.TestCase):
         self.assertEqual(ep.call.modem_role,'calling')
 
     def incoming(self,ep):
-        data=('INVITE sip:eicon@local SIP/2.0\r\nCall-ID: incoming\r\nFrom: <sip:caller@peer>\r\n\r\n'+SDP).encode()
+        data=('INVITE sip:eicon@local SIP/2.0\r\nCall-ID: incoming\r\nCSeq: 1 INVITE\r\nFrom: <sip:caller@peer>\r\n\r\n'+SDP).encode()
         ep.sip=SimpleNamespace(recvfrom=Mock(return_value=(data,('127.0.0.1',5060))))
         ep.on_sip()
 
