@@ -648,6 +648,7 @@ class AnalogKernelModem:
         self.switches = self.card.switches
         self.forced_info_samples = self.card.forced_info_samples
         self.modem_role = modem_role
+        self.modem_options = None
         self.law = law
         self.resident = 0
         # The codec boundary.  V.8 asks for `Samplerate` code 4 -- 9600 Hz --
@@ -736,7 +737,9 @@ class AnalogKernelModem:
         # makes.  GEN_SETUP1 bit 3 selects calling (0x048C) over answer.
         self.card.configure_g711_law(law)
         role = role or self.modem_role
+        self.card.modem_options = self.modem_options
         self.card.configure_modem(role, law)
+        self.modem_options = self.card.modem_options
         if DIAL_ORIGINATE:
             # Let DIAL consume the NORM bit and run its own training init, the
             # way the answering backends do, instead of leaving the page

@@ -238,6 +238,17 @@ Use ATS0=1 for autoanswer or ATS0=0 followed by ATA after RING for manual
 answer. Manual ATA waits for CONNECT or failure; a keypress during training
 aborts the attempt. ATH can reject a ringing call.
 
+### V.34 speed selection
+
+Before ATDT, use `AT+MS=v34,0,2400,14400,2400,14400` to request V.34 only
+and cap both receive and transmit rates at 14400 bit/s. Parameters after
+automode are minimum RX, maximum RX, minimum TX and maximum TX. Use
+`AT+MS=v34,0,9600,9600,9600,9600` for a fixed 9600-bit/s attempt.
+The Analog backends apply the limits to the next call, including answering;
+an out-of-window negotiated V.34 rate returns NO CARRIER. See
+[the Courier guide](docs/courier_sip.md#v34-speed-limits) for details and
+current validation status.
+
 ### Local modem speaker
 
 Add `--audio-monitor` to `tools/modem_service.py` or

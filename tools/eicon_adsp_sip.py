@@ -4144,6 +4144,8 @@ class EiconSipEndpoint:
             if self.pc_histogram_state is not None:
                 self._pc_state_track(call)
             call.rx_last_codes = received_codes
+            if not self.check_call_rate_limits(call):
+                return
             if self.capture:
                 # Timed separately because it is the one part of a quantum
                 # that is pure diagnostics: about 1,450 individual DM reads
@@ -4203,8 +4205,15 @@ class EiconSipEndpoint:
         role = modem_role or self.role_for(outgoing=False)
         if role not in ('calling', 'answer'):
             raise ValueError('a card needs a resolved calling or answer role')
+        options = None
+        if (not self.native_mips and dsp_drive.FIRMWARE_SET == 'analog109'
+                and self.at is not None):
+            selected = self.at.options()
+            if selected.index >= 0:
+                options = selected
         if (self.preboot_card is not None
-                and getattr(self.preboot_card, '_sip_modem_role', role) == role):
+                and getattr(self.preboot_card, '_sip_modem_role', role) == role
+                and getattr(self.preboot_card, '_sip_modem_options', None) == options):
             card = self.preboot_card
             self.preboot_card = None
             modem_log.debug('[preboot] taking the card booted at startup')
@@ -4256,6 +4265,8 @@ class EiconSipEndpoint:
                         else "T1/E1 8-bit companded timeslot")
             modem_log.debug(f"[media] physical DSP line boundary: {boundary}")
         card.boot()
+        if not self.native_mips and getattr(card, 'firmware_set', None) == 'analog109':
+            card.modem_options = options
         # Where the role can be selected here it is, and where it cannot the
         # backend took it at construction. Plain Card writes GEN_SETUP1
         # directly (dial_tikrnl_drive.py:402); NativeMipsModem publishes it in
@@ -4335,6 +4346,12 @@ class EiconSipEndpoint:
         if self.assert_dm_clean and self.assert_dm_clean[2] is None:
             self._arm_dm_assertion(cpu)
         card._sip_modem_role = role
+        card._sip_modem_options = options
+        if options is not None:
+            modem_log.info('[call] AT modulation settings: '
+                           f'{options.min_tx}..{options.max_tx or "default"} bit/s TX, '
+                           f'{options.min_rx}..{options.max_rx or "default"} bit/s RX; '
+                           f'automode={options.automode}')
         return card
 
     def _arm_watches(self, cpu) -> None:
@@ -5003,6 +5020,35 @@ class EiconSipEndpoint:
         eicon_mips_shim.set_modem_options(options)
         import eicon_idi
         modem_log.debug(f'[at] next call: {eicon_idi.describe_cai(eicon_idi.build_cai(options))}')
+
+    def check_call_rate_limits(self, call: Call) -> bool:
+        """Reject out-of-window V.34 rates before CONNECT and after retraining.
+
+        MAXTXSPEED/MAXRXSPEED enforce maxima in the DSP. The shared rate
+        mask cannot express different TX/RX minima, so also enforce the
+        complete per-call windows when the firmware publishes data rates.
+        """
+        options = getattr(call.card, 'modem_options', None)
+        if options is None or options.index < 0:
+            return True
+        import eicon_idi
+        if eicon_idi.MOD2NORM[options.index].name != 'v34':
+            return True
+        if call.card.dm[0x3fc2] != 0x00d0:
+            return True
+        tx = eicon_idi.v34_rate(int(call.card.dm[0x3f61]))
+        rx = eicon_idi.v34_rate(int(call.card.dm[0x3f62]))
+        if not tx or not rx:
+            return True  # The firmware has not published both rates yet.
+        if (options.min_tx <= tx <= (options.max_tx or 33600)
+                and options.min_rx <= rx <= (options.max_rx or 33600)):
+            return True
+        modem_log.warning('[call] negotiated rates outside AT+MS limits: '
+                          f'TX={tx} RX={rx} bit/s; '
+                          f'TX allowed {options.min_tx}..{options.max_tx or 33600}, '
+                          f'RX allowed {options.min_rx}..{options.max_rx or 33600}')
+        self.hangup_call('negotiated rate outside AT+MS limits')
+        return False
 
     def at_watch(self, call: 'Call') -> None:
         """Emit CONNECT once the card publishes a negotiated rate.

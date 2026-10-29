@@ -1498,6 +1498,35 @@ V34_SPEEDS_BY_INDEX = (0, 75, 110, 150, 300, 600, 1200, 2400,
                        33600)
 
 
+def v34_rate_database(options: ModemOptions | None) -> dict[int, int]:
+    """ADDSP 5.3.1 V.34 rate mask and directional maximum-rate words.
+
+    The capability mask is shared by both directions. Use the union of
+    their windows; directional maxima constrain the transmitter/receiver
+    independently. Unequal minimum rates also require a negotiated-rate
+    check by the host, since the DSP has no separate minimum-rate words.
+    Keys are offsets within the write database, not absolute DM addresses.
+    """
+    if (options is None or options.index < 0
+            or MOD2NORM[options.index].name != 'v34'
+            or not any((options.min_tx, options.max_tx,
+                        options.min_rx, options.max_rx))):
+        return {}
+    tx_max = options.max_tx or 33600
+    rx_max = options.max_rx or 33600
+    mask = 1  # Retain the documented cleardown bit.
+    for index, rate in enumerate(V34_SPEEDS_BY_INDEX[1:], start=1):
+        if ((options.min_tx <= rate <= tx_max)
+                or (options.min_rx <= rate <= rx_max)):
+            mask |= 1 << index
+    # AUTO/V.8 offers uncoded V.32 at 9600 whenever 9600 is enabled.
+    if options.automode and mask & (1 << 10):
+        mask |= 1 << 29
+    return {0x2a: (mask >> 16) & 0xffff, 0x2b: mask & 0xffff,
+            0x7c: min(14, tx_max // 2400),
+            0x7e: min(14, rx_max // 2400)}
+
+
 def v34_rate(speed_word: int, format_mask: int = 0x2000) -> int | None:
     """Decode the ADDSP DATASTATE V.34 speed-number field."""
     if speed_word & format_mask:

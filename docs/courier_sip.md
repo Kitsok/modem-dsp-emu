@@ -97,6 +97,43 @@ Keep the Courier serial terminal open so DTR and RTS are asserted. Use
 `AT&M5S0=1` to require error correction and enable autoanswer. These are
 volatile settings unless explicitly saved on the modem.
 
+## V.34 speed limits
+
+Before dialing, set the receive and transmit windows with the AT terminal:
+
+```text
+AT+MS=v34,0,2400,14400,2400,14400
+ATDT100
+```
+
+The argument order is modulation, automode, minimum RX, maximum RX,
+minimum TX, maximum TX. This example selects V.34 only (automode 0),
+with 2400..14400 bit/s in both directions. For a fixed 9600-bit/s attempt:
+
+```text
+AT+MS=v34,0,9600,9600,9600,9600
+ATDT100
+```
+
+AT+IE accepts the same arguments; AT+MS? displays the current selection.
+Set commands before the next call; changes do not reconfigure an active
+call. ATZ resets the modem profile. With no explicit rate selection the
+existing unrestricted defaults are retained.
+
+The direct Analog and Analog kernel backends pass the AT selection into
+the next card's modulation menu and V.34 write database before training.
+The shared capability mask covers the union of TX/RX windows, and separate
+maximum-rate words cap each direction in 2400-bit/s units. Since the DSP
+has no separate TX/RX minimum words, the host also checks negotiated
+V.34 rates against both complete windows. An out-of-window rate ends the
+call with NO CARRIER, including after retraining. A prebooted card with
+older settings is not reused for the new selection.
+
+These changes implement V.34 rate limits; they do not add Analog-backend
+rate control for other modulations. Native MIPS retains its existing CAI
+configuration path. This implementation has not been tested; validation
+was explicitly left to the user.
+
 ## Stable terminal
 
 For the packaged service, open `tio /dev/modem-emu` from a login session

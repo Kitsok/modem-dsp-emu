@@ -1740,8 +1740,11 @@ class Card:
         if role == 'idle':
             return
         selection = os.environ.get('EICON_MODULATION', '')
-        disabled = (eicon_idi.parse_modulation(selection).disabled
-                    if selection else 0)
+        options = getattr(self, 'modem_options', None)
+        if options is None and selection:
+            options = eicon_idi.parse_modulation(selection)
+        self.modem_options = options
+        disabled = options.disabled if options is not None else 0
         # Tables 12-15 plus V.90-specific §5.3.1 fields. These values are all
         # resident before the final change_wdb strobe is consumed by DIAL.
         writes = {
@@ -1768,6 +1771,10 @@ class Card:
             DM_DB + 0x7E: 0x000E, DM_DB + 0x7F: 0x0015,
             DM_DB + 0x0E: 0x2000,
         }
+        # MAXTXSPEED/MAXRXSPEED are rates / 2400, unlike the rate-bit
+        # indexes in DATASTATEspeedTx/DATASTATESpeed (ADDSP 5.3.1).
+        writes.update({DM_DB + offset: value for offset, value in
+                       eicon_idi.v34_rate_database(options).items()})
         for address, value in writes.items():
             self.dm[address] = value
         # Norm_H is restored from here whenever a page takes the word back;
