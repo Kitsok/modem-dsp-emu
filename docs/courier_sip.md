@@ -16,6 +16,28 @@ Cancelled SIP calls may still receive late answers. The endpoint ACKs each
 late answer with the original INVITE sequence and sends only one BYE, without
 starting modem media or disturbing a subsequent dial attempt.
 
+## In-call media updates
+
+The endpoint accepts SDP-bearing re-INVITEs in an established incoming or
+outgoing dialog. A supported IPv4 G.711 `sendrecv` offer updates the RTP
+destination without rebuilding the DSP, resetting its sample clock or
+clearing audio queues. A PBX can therefore request direct media and later
+move media back through itself. The configured PCMU or PCMA payload must
+remain available in the offer; no codec conversion is introduced.
+
+The endpoint checks dialog tags and remote CSeq, caches responses to duplicate
+requests, and retransmits 200 OK until ACK. Missing ACK for 32 seconds releases
+the call. Unsupported offers, including hold and offers without SDP, receive
+488 while existing media settings remain active; separate calls still receive
+486 Busy Here. Late RTP from the previous destination cannot undo the update
+through symmetric RTP learning. Target refreshes also update the Contact used
+for subsequent BYE requests. Normal logs show `[sip] re-INVITE: RTP -> ...`.
+
+`tests/test_sip_reinvite.py` covers target refreshes, replay, ACK, modem state
+preservation, rejected offers, wrong dialogs, stale CSeq values and late RTP.
+These new tests and live PBX direct-media calls have not been run for this
+change.
+
 ## System Python
 
 `run.sh` uses `exec /usr/bin/python3 -u` and does not depend on `.venv`.

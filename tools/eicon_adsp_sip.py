@@ -759,22 +759,41 @@ def local_address_for(peer: tuple[str, int], bound: str, advertised: str | None)
         probe.close()
 
 
+def sip_dialog_tag(header: str) -> str:
+    match = re.search(r'(?:^|;)\s*tag=([^;\s>]+)', header, re.I)
+    return match.group(1) if match else ''
+
+
 def parse_g711_sdp(body: str, sip_peer: tuple[str, int], payload_type: int) -> tuple[str, int] | None:
-    address = sip_peer[0]
-    session_c = re.search(r'(?im)^c=IN IP4\s+([^\s]+)', body)
-    if session_c:
-        address = session_c.group(1)
-    media = re.search(r'(?im)^m=audio\s+(\d+)\s+RTP/AVP\s+([^\r\n]+)', body)
-    if not media:
+    sections = re.split(r'(?m)^m=', body)
+    session = sections[0]
+    audio = next((part for part in sections[1:] if part.startswith('audio ')), '')
+    fields = audio.splitlines()[0].split() if audio else []
+    if len(fields) < 4 or fields[2] != 'RTP/AVP' or str(payload_type) not in fields[3:]:
         return None
-    payloads = {int(x) for x in re.findall(r'\d+', media.group(2))}
-    if payload_type not in payloads:
+    try:
+        port = int(fields[1])
+    except ValueError:
         return None
-    media_tail = body[media.end():]
-    media_c = re.search(r'(?im)^c=IN IP4\s+([^\s]+)', media_tail)
-    if media_c:
-        address = media_c.group(1)
-    return address, int(media.group(1))
+    connection = re.search(r'(?im)^c=IN IP4\s+([^\s]+)', audio)
+    if connection is None:
+        connection = re.search(r'(?im)^c=IN IP4\s+([^\s]+)', session)
+    address = connection.group(1) if connection else sip_peer[0]
+    try:
+        socket.inet_pton(socket.AF_INET, address)
+    except OSError:
+        return None
+    direction = re.findall(r'(?im)^a=(sendrecv|sendonly|recvonly|inactive)\s*$', audio)
+    if not direction:
+        direction = re.findall(r'(?im)^a=(sendrecv|sendonly|recvonly|inactive)\s*$', session)
+    if not 0 < port <= 65535 or address == '0.0.0.0' or (direction and direction[-1].lower() != 'sendrecv'):
+        return None
+    codec = {0: 'PCMU', 8: 'PCMA'}.get(payload_type)
+    mappings = dict(re.findall(r'(?im)^a=rtpmap:(\d+)\s+([^\s]+)', audio))
+    mapping = mappings.get(str(payload_type), f'{codec}/8000').upper()
+    if codec is None or mapping not in (f'{codec}/8000', f'{codec}/8000/1'):
+        return None
+    return address, port
 
 
 def rtp_payload(packet: bytes, payload_type: int) -> tuple[int, int, bytes] | None:
@@ -861,6 +880,10 @@ class Call:
     local_to: str = ''
     target: str = ''
     cseq: int = 0
+    remote_cseq: int = -1
+    media_update: dict | None = None
+    initial_invite: dict | None = None
+    retired_rtp_peers: set = field(default_factory=set)
     rx: collections.deque[int] = field(default_factory=collections.deque)
     tx_seq: int = field(default_factory=lambda: random.randrange(65536))
     tx_timestamp: int = field(default_factory=lambda: random.randrange(2**32))
@@ -2123,7 +2146,7 @@ class EiconSipEndpoint:
 
     def response(self, code: int, reason: str, headers: dict[str, str],
                  peer: tuple[str, int], body: str = '', extra: list[str] | None = None,
-                 tag: str | None = None) -> None:
+                 tag: str | None = None) -> bytes:
         lines = [f'SIP/2.0 {code} {reason}']
         for name in ('via', 'from'):
             if headers.get(name):
@@ -2140,6 +2163,56 @@ class EiconSipEndpoint:
         lines.append(f'Content-Length: {len(payload)}')
         wire = ('\r\n'.join(lines) + '\r\n\r\n').encode('ascii') + payload
         self.sip.sendto(wire, peer)
+        return wire
+
+    def _matches_dialog(self, headers, peer) -> bool:
+        call = self.call
+        return bool(call and peer == call.sip_peer
+                    and headers.get('call-id') == call.call_id
+                    and sip_dialog_tag(headers.get('to', '')) == call.local_tag
+                    and sip_dialog_tag(call.remote_from)
+                    and sip_dialog_tag(headers.get('from', '')) == sip_dialog_tag(call.remote_from))
+
+    def _reinvite(self, headers, body, peer) -> None:
+        """Accept a media target refresh without touching the data pump."""
+        call = self.call
+        if not self._matches_dialog(headers, peer):
+            self.response(481, 'Call/Transaction Does Not Exist', headers, peer)
+            return
+        cseq = int(headers['cseq'].split()[0])
+        update = call.media_update
+        if update and cseq == update['cseq'] and headers.get('via') == update['via']:
+            self.sip.sendto(update['response'], peer)
+            return
+        if cseq <= call.remote_cseq:
+            self.response(500, 'CSeq Out of Order', headers, peer, tag=call.local_tag)
+            return
+        if update and update['success'] and not update['acked']:
+            self.response(491, 'Request Pending', headers, peer, tag=call.local_tag)
+            return
+        call.remote_cseq = cseq
+        media = parse_g711_sdp(body, peer, self.payload_type)
+        success = media is not None
+        if not success:
+            response = self.response(488, 'Not Acceptable Here', headers, peer, tag=call.local_tag)
+        else:
+            old = call.rtp_peer
+            call.retired_rtp_peers.discard(media)
+            if old != media:
+                call.retired_rtp_peers.add(old)
+            call.rtp_peer = media
+            call.target = contact_uri(headers.get('contact', ''), call.target)
+            if self.outgoing and self.outgoing['call_id'] == call.call_id:
+                self.outgoing['target'] = call.target
+            local_ip = local_address_for(peer, self.bind, self.advertised)
+            response = self.response(200, 'OK', headers, peer, self.local_sdp(local_ip),
+                                     [f'Contact: <sip:eicon@{local_ip}:{self.sip_port}>',
+                                      'Content-Type: application/sdp'], call.local_tag)
+            modem_log.info(f'[sip] re-INVITE: RTP -> {media[0]}:{media[1]}')
+        now = time.monotonic()
+        call.media_update = dict(cseq=cseq, via=headers.get('via'), response=response,
+                                 success=success, acked=False, started=now,
+                                 next=now + .5, interval=.5)
 
     def on_sip(self) -> None:
         data, peer = self.sip.recvfrom(65535)
@@ -2181,6 +2254,12 @@ class EiconSipEndpoint:
         if method == 'OPTIONS':
             self.response(200, 'OK', headers, peer, extra=['Allow: INVITE, ACK, BYE, OPTIONS'])
             return
+        if method == 'ACK' and self.call and self.call.media_update:
+            update = self.call.media_update
+            if (self._matches_dialog(headers, peer)
+                    and headers.get('cseq', '').split() == [str(update['cseq']), 'ACK']):
+                update['acked'] = True
+            return
         if method == 'INVITE':
             offered = []
             for match in re.finditer(
@@ -2190,23 +2269,31 @@ class EiconSipEndpoint:
             modem_log.info('[sip] INVITE media offer: '
                   + (media_line.group(0) if media_line else 'no m=audio')
                   + ('; ' + ', '.join(offered) if offered else ''))
+            sequence = headers.get('cseq', '').split()
+            if (not headers.get('call-id') or len(sequence) != 2
+                    or not sequence[0].isdigit() or sequence[1] != 'INVITE'):
+                self.response(400, 'Bad Request', headers, peer)
+                return
+            call_id = headers['call-id']
+            if self.call and self.call.call_id == call_id:
+                initial = self.call.initial_invite
+                if (initial and peer == self.call.sip_peer
+                        and headers.get('cseq') == initial['headers'].get('cseq')
+                        and headers.get('via') == initial['headers'].get('via')):
+                    self.sip.sendto(initial['response'], peer)
+                else:
+                    self._reinvite(headers, body, peer)
+                return
+            if sip_dialog_tag(headers.get('to', '')):
+                self.response(481, 'Call/Transaction Does Not Exist', headers, peer)
+                return
+            if self.call:
+                self.response(486, 'Busy Here', headers, peer)
+                return
             media = parse_g711_sdp(body, peer, self.payload_type)
             if media is None:
                 self.response(488, 'Not Acceptable Here', headers, peer,
                               extra=['Accept: application/sdp'])
-                return
-            call_id = headers.get('call-id', '')
-            if self.call and self.call.call_id != call_id:
-                self.response(486, 'Busy Here', headers, peer)
-                return
-            if self.call:
-                # Retransmission of an INVITE we already answered.
-                local_ip = local_address_for(peer, self.bind, self.advertised)
-                sdp = self.local_sdp(local_ip)
-                self.response(200, 'OK', headers, peer, sdp,
-                              [f'Contact: <sip:eicon@{local_ip}:{self.sip_port}>',
-                               'Content-Type: application/sdp'],
-                              self.call.local_tag)
                 return
             if self.pending_invite and self.pending_invite['call_id'] == call_id:
                 # Retransmission while still ringing: resend 180 Ringing.
@@ -2406,6 +2493,9 @@ class EiconSipEndpoint:
             return
         _, _, payload = parsed
         if not payload:
+            return
+        # A late packet from the previous bridge must not undo a re-INVITE.
+        if peer in call.retired_rtp_peers:
             return
         # NAT symmetric-RTP: reply to the address that actually sent media.
         call.rtp_peer = peer
@@ -3296,6 +3386,15 @@ class EiconSipEndpoint:
         call = self.call
         if not call:
             return
+        update = call.media_update
+        if update and update['success'] and not update['acked']:
+            if now - update['started'] >= 32:
+                self.hangup_call('SIP media update was not acknowledged')
+                return
+            if now >= update['next']:
+                self.sip.sendto(update['response'], call.sip_peer)
+                update['interval'] = min(update['interval'] * 2, 4)
+                update['next'] = now + update['interval']
         # The media clock starts when the bearer opens, not when the Call
         # object was created. SIP setup, the ring cadence and several seconds
         # of firmware boot all sit in between, and carrying that deficit into
@@ -4579,14 +4678,16 @@ class EiconSipEndpoint:
         local_ip = local_address_for(peer, self.bind, self.advertised)
         # Captured at answer, because this is the last point the INVITE's
         # headers are in hand and a BYE at shutdown needs them.
+        self.call.remote_cseq = int(headers['cseq'].split()[0])
         self.call.remote_from = headers.get('from', '').strip()
         self.call.local_to = headers.get('to', '').strip()
         self.call.target = contact_uri(headers.get('contact', ''),
                                        f'sip:{peer[0]}:{peer[1]}')
         sdp = self.local_sdp(local_ip)
-        self.response(200, 'OK', headers, peer, sdp,
+        response = self.response(200, 'OK', headers, peer, sdp,
                       [f'Contact: <sip:eicon@{local_ip}:{self.sip_port}>',
                        'Content-Type: application/sdp'], self.call.local_tag)
+        self.call.initial_invite = dict(headers=dict(headers), response=response)
         modem_log.info(f'[call] answering {peer[0]}:{peer[1]}, RTP -> '
               f'{media[0]}:{media[1]}, {self.codec_name}/8000, modem role {role}')
 
@@ -4723,7 +4824,7 @@ class EiconSipEndpoint:
             return
         peer = out['peer']
         local_ip = local_address_for(peer, self.bind, self.advertised)
-        uri = f'sip:{out["number"]}@{out["host"]}'
+        uri = out.get('target') or f'sip:{out["number"]}@{out["host"]}'
         out['cseq'] += 1
         lines = [f'BYE {uri} SIP/2.0',
                  f'Via: SIP/2.0/UDP {local_ip}:{self.sip_port};'
@@ -4850,6 +4951,9 @@ class EiconSipEndpoint:
                 self.at_apply_options()
             card = self.build_card(role)
         self.call = Call(peer, media, out['call_id'], out['tag'], card, modem_role=role)
+        self.call.remote_from = headers.get('to', '')
+        self.call.target = contact_uri(headers.get('contact', ''),
+                                       f'sip:{peer[0]}:{peer[1]}')
         self._attach_reactive_engine(self.call)
         self.attach_physical_line(self.call)
         modem_log.info(f'[call] connected to {media[0]}:{media[1]}, '
